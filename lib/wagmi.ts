@@ -1,18 +1,23 @@
-import { createConfig, http } from "wagmi";
-import { injected } from "wagmi/connectors";
+import { cookieStorage, createStorage } from "wagmi";
+import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { supportedChains } from "./chains";
 
-export const wagmiConfig = createConfig({
-  chains: supportedChains as any,
-  transports: Object.fromEntries(
-    supportedChains.map((c) => [c.id, http(c.rpcUrls.default.http[0])])
-  ),
-  connectors: [injected()],
+export const projectId = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID ?? "";
+
+export const hasReownProjectId = /^[a-f0-9]{32}$/i.test(projectId);
+
+export const wagmiAdapter = new WagmiAdapter({
+  networks: supportedChains as any,
+  projectId: projectId || "0".repeat(32),
   ssr: true,
+  storage: createStorage({ storage: cookieStorage }),
 });
 
-// Reown AppKit — aktifkan setelah pnpm add @reown/appkit @reown/appkit-adapter-wagmi
-// import { createAppKit } from "@reown/appkit/react";
-// import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
-// const wagmiAdapter = new WagmiAdapter({ networks: supportedChains as any, projectId: process.env.NEXT_PUBLIC_REOWN_PROJECT_ID! });
-// export const appKit = createAppKit({ adapters: [wagmiAdapter], networks: supportedChains as any, projectId: process.env.NEXT_PUBLIC_REOWN_PROJECT_ID!, metadata: { name: "Portfolio Dashboard", description: "Onchain portfolio tracker", url: "https://example.com", icons: [] } });
+export const wagmiConfig = wagmiAdapter.wagmiConfig;
+
+export const appkitMetadata = {
+  name: "Onchain Portfolio",
+  description: "Real-time on-chain portfolio tracker — Robinhood Chain, Base, BSC, HyperEVM, Ink",
+  url: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  icons: ["https://avatars.githubusercontent.com/u/37784886"],
+};
