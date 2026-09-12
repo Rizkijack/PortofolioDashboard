@@ -16,6 +16,7 @@ import type { ChainKey, PriceQuote, PriceSource } from "../types";
 import { readChainlink, toQuote as clQuote } from "./chainlink";
 import { readRedstonePush, pushToQuote, fetchRedstoneApi } from "./redstone";
 import { ensureStream, getStreamPrice } from "./binance";
+import { CANONICAL_TOKENS } from "./canonical-tokens";
 
 /** Aset mayor yang tersedia di stream Binance. */
 function streamQuote(symbol: string): PriceQuote | null {
@@ -64,43 +65,53 @@ export async function resolveQuotes(
     const sym = t.symbol.toUpperCase();
     const key = t.address.toLowerCase();
 
-    const cl = chainlink.get(sym);
-    const chainlinkQ: PriceQuote | null = cl && cl.usd !== null && cl.usd > 0 ? clQuote(cl) : null;
+    // Verifikasi apakah token ini berhak menggunakan oracle Tier 1/Tier 2 simbol-level:
+    // Hanya native asset (isNative === true) atau token yang terdaftar di CANONICAL_TOKENS
+    // yang boleh mencocokkan harga simbol makro seperti BTC, ETH, USDG, dsb.
+    const isCanonical =
+      t.isNative ||
+      Boolean(CANONICAL_TOKENS[chain]?.[key]);
 
-    const rsPush = redstonePush.get(sym);
-    const pushQ: PriceQuote | null =
-      rsPush && rsPush.usd !== null && rsPush.usd > 0 ? pushToQuote(rsPush) : null;
-
-    // Tier 1 — on-chain (utamakan yang masih dalam jendela heartbeat)
     let best: PriceQuote | null = null;
-    for (const q of [chainlinkQ, pushQ]) {
-      if (q && q.usd !== null && q.ageMs <= ONCHAIN_MAX_AGE_MS) {
-        best = pickBetter(best, q);
-        break;
+
+    if (isCanonical) {
+      const cl = chainlink.get(sym);
+      const chainlinkQ: PriceQuote | null = cl && cl.usd !== null && cl.usd > 0 ? clQuote(cl) : null;
+
+      const rsPush = redstonePush.get(sym);
+      const pushQ: PriceQuote | null =
+        rsPush && rsPush.usd !== null && rsPush.usd > 0 ? pushToQuote(rsPush) : null;
+
+      // Tier 1 — on-chain (utamakan yang masih dalam jendela heartbeat)
+      for (const q of [chainlinkQ, pushQ]) {
+        if (q && q.usd !== null && q.ageMs <= ONCHAIN_MAX_AGE_MS) {
+          best = pickBetter(best, q);
+          break;
+        }
       }
-    }
-    if (!best) best = pickBetter(chainlinkQ, pushQ);
+      if (!best) best = pickBetter(chainlinkQ, pushQ);
 
-    // Tier 2 — stream Binance bila on-chain absen/basi
-    if (!best || best.usd === null || best.stale) {
-      const streamQ = streamQuote(sym);
-      if (streamQ && streamQ.usd !== null) best = streamQ;
-    }
+      // Tier 2 — stream Binance bila on-chain absen/basi
+      if (!best || best.usd === null || best.stale) {
+        const streamQ = streamQuote(sym);
+        if (streamQ && streamQ.usd !== null) best = streamQ;
+      }
 
-    // Tier 2b — RedStone API
-    if (!best || best.usd === null) {
-      const api = redstoneApi.get(sym);
-      if (api) {
-        const fetchedAt = Date.now();
-        best = {
-          usd: api.usd,
-          source: "redstone-api",
-          updatedAt: api.updatedAt,
-          fetchedAt,
-          ageMs: fetchedAt - api.updatedAt,
-          stale: false,
-          change24h: null,
-        };
+      // Tier 2b — RedStone API
+      if (!best || best.usd === null) {
+        const api = redstoneApi.get(sym);
+        if (api) {
+          const fetchedAt = Date.now();
+          best = {
+            usd: api.usd,
+            source: "redstone-api",
+            updatedAt: api.updatedAt,
+            fetchedAt,
+            ageMs: fetchedAt - api.updatedAt,
+            stale: false,
+            change24h: null,
+          };
+        }
       }
     }
 
