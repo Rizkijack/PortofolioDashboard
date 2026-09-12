@@ -71,6 +71,9 @@ export interface TokenBalance {
   price: PriceQuote;
   valueUsd: number | null;
   suspicious?: boolean;
+  verified?: boolean;
+  protocol?: string | null;
+  discoverySource?: string;
 }
 
 // ─────────────────────────── Portofolio ───────────────────────────

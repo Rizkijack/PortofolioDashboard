@@ -39,6 +39,9 @@ export interface PortfolioPosition {
   priceStale: boolean;
   isNative: boolean;
   suspicious: boolean;
+  verified?: boolean;
+  protocol?: string | null;
+  discoverySource?: string;
 }
 
 export interface PortfolioSummary {
@@ -81,6 +84,9 @@ export function toPositions(res: PortfolioResponse): PortfolioPosition[] {
         priceStale: t.price.stale,
         isNative: t.isNative,
         suspicious: t.suspicious ?? false,
+        verified: t.verified,
+        protocol: t.protocol,
+        discoverySource: t.discoverySource,
       });
     }
   }

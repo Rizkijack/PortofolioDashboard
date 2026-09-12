@@ -1,37 +1,16 @@
 /**
- * lib/discovery/index.ts — penemuan saldo token per chain (data NYATA).
- *
- *   base      → base.blockscout.com              (v2)
- *   ink       → explorer.inkonchain.com          (v2)
- *   robinhood → robinhoodchain.blockscout.com    (v2)
- *   hyperevm  → hyperevmscan.io                  (v2)
- *   bsc       → api.routescan.io                 (Blockscout BSC 404)
- *
- * PENTING (Robinhood): Cloudflare di depan Blockscout menolak request dengan
- * User-Agent saja (HTTP 403) — perlu header browser lengkap
- * (accept-language, referer, sec-fetch-*). Sudah diuji:
- *   UA saja            → 403
- *   UA + browser head  → 200 (43 token)
+ * lib/discovery/index.ts — Engine penemuan saldo token multi-provider (Blockscout, Rabby, Zerion, OKX, Routescan, Etherscan).
  */
 
 import { fetchWithTimeout, globalCache } from "../cache";
 import type { ChainKey } from "../types";
+import type { DiscoveredToken, TokenDiscoveryProvider } from "./types";
+import { rabbyProvider } from "./providers/rabby";
+import { zerionProvider } from "./providers/zerion";
+import { okxProvider } from "./providers/okx";
+import { etherscanProvider } from "./providers/etherscan";
 
-export interface DiscoveredToken {
-  address: string;
-  symbol: string;
-  name: string;
-  decimals: number;
-  /** saldo dari explorer (dipakai sebagai fallback) */
-  rawBalance: string;
-  explorerRateUsd: number | null;
-  marketCapUsd: number | null;
-  volume24hUsd: number | null;
-  holdersCount: number | null;
-  logoUrl: string | null;
-  type: string;
-  suspicious: boolean;
-}
+export type { DiscoveredToken, DiscoverySource } from "./types";
 
 const V2_BASES: Partial<Record<ChainKey, string>> = {
   base: "https://base.blockscout.com",
@@ -43,10 +22,6 @@ const V2_BASES: Partial<Record<ChainKey, string>> = {
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-/**
- * Header browser lengkap — wajib untuk Blockscout Robinhood (Cloudflare).
- * Aman dipakai untuk semua Blockscout instance.
- */
 function browserHeaders(base: string, refererPath = "/"): Record<string, string> {
   return {
     accept: "application/json, text/plain, */*",
@@ -117,6 +92,8 @@ async function discoverViaBlockscout(
       logoUrl: t?.icon_url ?? null,
       type: t?.type ?? "ERC-20",
       suspicious: (t?.reputation ?? "ok") !== "ok",
+      verified: t?.reputation === "ok",
+      discoverySource: "blockscout",
     });
   }
   return out;
@@ -131,7 +108,6 @@ interface RoutescanTokenTx {
 
 const ROUTESCAN_BASE = "https://api.routescan.io/v2/network/mainnet/evm";
 
-/** BSC: metadata token dari tokentx (Routescan tidak punya endpoint saldo agregat). */
 async function discoverViaRoutescan(chain: ChainKey, address: string): Promise<DiscoveredToken[]> {
   const chainId = chain === "bsc" ? 56 : 0;
   const url =
@@ -159,7 +135,7 @@ async function discoverViaRoutescan(chain: ChainKey, address: string): Promise<D
     symbol: r.tokenSymbol?.trim() || "UNKNOWN",
     name: r.tokenName?.trim() || "Unknown Token",
     decimals: Number(r.tokenDecimal ?? 18) || 18,
-    rawBalance: "0", // diisi pembacaan on-chain
+    rawBalance: "0",
     explorerRateUsd: null,
     marketCapUsd: null,
     volume24hUsd: null,
@@ -167,9 +143,44 @@ async function discoverViaRoutescan(chain: ChainKey, address: string): Promise<D
     logoUrl: null,
     type: "ERC-20",
     suspicious: false,
+    verified: true,
+    discoverySource: "routescan",
   }));
 }
 
+const blockscoutProvider: TokenDiscoveryProvider = {
+  id: "blockscout",
+  name: "Blockscout v2",
+  supportsChain: (chain) => Boolean(V2_BASES[chain]),
+  discoverTokens: async (chain, address) => {
+    const base = V2_BASES[chain];
+    if (!base) return [];
+    return discoverViaBlockscout(chain, base, address);
+  },
+};
+
+const routescanProvider: TokenDiscoveryProvider = {
+  id: "routescan",
+  name: "Routescan v2",
+  supportsChain: (chain) => chain === "bsc",
+  discoverTokens: async (chain, address) => {
+    return discoverViaRoutescan(chain, address);
+  },
+};
+
+const ALL_PROVIDERS: TokenDiscoveryProvider[] = [
+  blockscoutProvider,
+  rabbyProvider,
+  routescanProvider,
+  zerionProvider,
+  okxProvider,
+  etherscanProvider,
+];
+
+/**
+ * Menggabungkan hasil discovery dari semua provider yang relevan dengan chain,
+ * deduplikasi berdasarkan address, dan memperkaya metadata.
+ */
 export async function discoverTokens(
   chain: ChainKey,
   address: string
@@ -179,10 +190,37 @@ export async function discoverTokens(
     const { value } = await globalCache.swr(
       key,
       async () => {
-        if (chain === "bsc") return discoverViaRoutescan(chain, address);
-        const base = V2_BASES[chain];
-        if (!base) return [];
-        return discoverViaBlockscout(chain, base, address);
+        const eligibleProviders = ALL_PROVIDERS.filter((p) => p.supportsChain(chain));
+        
+        const results = await Promise.allSettled(
+          eligibleProviders.map((p) => p.discoverTokens(chain, address))
+        );
+
+        const tokenMap = new Map<string, DiscoveredToken>();
+
+        for (const res of results) {
+          if (res.status === "fulfilled" && Array.isArray(res.value)) {
+            for (const t of res.value) {
+              const existing = tokenMap.get(t.address);
+              if (!existing) {
+                tokenMap.set(t.address, t);
+              } else {
+                // Enrich existing token metadata
+                if (!existing.logoUrl && t.logoUrl) existing.logoUrl = t.logoUrl;
+                if (!existing.explorerRateUsd && t.explorerRateUsd) existing.explorerRateUsd = t.explorerRateUsd;
+                if (existing.symbol === "UNKNOWN" && t.symbol !== "UNKNOWN") existing.symbol = t.symbol;
+                if (existing.name === "Unknown Token" && t.name !== "Unknown Token") existing.name = t.name;
+                if (t.verified) existing.verified = true;
+                if (t.protocol && !existing.protocol) existing.protocol = t.protocol;
+                if (t.rawBalance && t.rawBalance !== "0" && existing.rawBalance === "0") {
+                  existing.rawBalance = t.rawBalance;
+                }
+              }
+            }
+          }
+        }
+
+        return Array.from(tokenMap.values());
       },
       { freshMs: 15_000, staleMs: 180_000 }
     );
@@ -219,6 +257,8 @@ export async function fetchTokenMeta(
       logoUrl: t.icon_url ?? null,
       type: t.type ?? "ERC-20",
       suspicious: (t.reputation ?? "ok") !== "ok",
+      verified: t.reputation === "ok",
+      discoverySource: "blockscout",
     };
   } catch {
     return null;

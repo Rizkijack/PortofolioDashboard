@@ -9,7 +9,7 @@ Tema: **minimal-bold** — bento grid, off-black + white, 1 accent emerald, typo
 ```
 Wallet (Reown AppKit + injected fallback)
   → wagmi/viem + RPC failover per chain
-    → Portfolio Engine (discovery Blockscout v2/Routescan + eth_getBalance + multicall balanceOf)
+    → Portfolio Engine (multi-provider discovery: Blockscout v2, Rabby Open API, Zerion, OKX, Routescan, Etherscan + on-chain multicall verification)
       → Oracle berlapis (Chainlink on-chain → RedStone push/API → Binance WS → DexScreener → Blockscout rate)
         → Next.js 16 Route Handlers (/api/portfolio, /api/prices, /api/chains, /api/token, /api/stream SSE)
           → UI (NetWorth bento + ChainGrid + AssetsTable + Price Ticker)

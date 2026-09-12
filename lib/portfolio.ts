@@ -156,6 +156,9 @@ export async function fetchChainPortfolio(
     isNative: boolean;
     logoUrl: string | null;
     suspicious: boolean;
+    verified?: boolean;
+    protocol?: string | null;
+    discoverySource?: string;
     explorerRateUsd: number | null;
     /** dari mana saldo diperoleh */
     balanceSource: "onchain" | "explorer";
@@ -174,6 +177,9 @@ export async function fetchChainPortfolio(
       isNative: true,
       logoUrl: null,
       suspicious: false,
+      verified: true,
+      protocol: null,
+      discoverySource: "native_rpc",
       explorerRateUsd: null,
       balanceSource: "onchain",
     });
@@ -181,7 +187,7 @@ export async function fetchChainPortfolio(
 
   for (const t of discovered) {
     const fromChain = balances.get(t.address);
-    // Fallback ke angka explorer HANYA bila explorer memang melaporkan saldo,
+    // Fallback ke angka explorer/SDK HANYA bila memang melaporkan saldo,
     // dan ditandai `balanceSource: "explorer"` supaya UI bisa membedakan.
     const explorerRaw = t.rawBalance && t.rawBalance !== "0" ? BigInt(t.rawBalance) : null;
     const value = fromChain ?? explorerRaw;
@@ -196,6 +202,9 @@ export async function fetchChainPortfolio(
         isNative: false,
         logoUrl: t.logoUrl,
         suspicious: t.suspicious || fromChain === undefined,
+        verified: t.verified,
+        protocol: t.protocol,
+        discoverySource: t.discoverySource,
         explorerRateUsd: t.explorerRateUsd,
         balanceSource: fromChain !== undefined ? "onchain" : "explorer",
       });
@@ -247,6 +256,9 @@ export async function fetchChainPortfolio(
       price: q,
       valueUsd: valueUsd !== null && Number.isFinite(valueUsd) ? valueUsd : null,
       suspicious: c.suspicious,
+      verified: c.verified,
+      protocol: c.protocol,
+      discoverySource: c.discoverySource,
     } satisfies TokenBalance;
   });
 
