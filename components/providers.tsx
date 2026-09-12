@@ -8,11 +8,15 @@ import { wagmiAdapter, appkitMetadata, projectId } from "@/lib/wagmi";
 import { supportedChains } from "@/lib/chains";
 
 // Init Reown AppKit once — must run both server & client before any useAppKit() call
-if (projectId && !((globalThis as any).__appkit_init)) {
-  (globalThis as any).__appkit_init = true;
+declare global {
+  var __appkit_init: boolean | undefined;
+}
+
+if (projectId && !globalThis.__appkit_init) {
+  globalThis.__appkit_init = true;
   createAppKit({
     adapters: [wagmiAdapter],
-    networks: supportedChains as any,
+    networks: supportedChains as unknown as Parameters<typeof createAppKit>[0]["networks"],
     projectId,
     metadata: appkitMetadata,
     features: { analytics: false },

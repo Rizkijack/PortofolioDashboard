@@ -2,7 +2,7 @@
 
 import { fmtNumber, fmtUsd } from "@/lib/utils";
 import { chainMeta, getChainById } from "@/lib/chains";
-import type { PortfolioPosition } from "@/lib/portfolio";
+import type { PortfolioPosition } from "@/lib/compat";
 
 export function AssetsTable({
   positions,

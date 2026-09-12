@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Scratch probes lokal (juga gitignored):
+    ".scratch/**",
   ]),
 ]);
 

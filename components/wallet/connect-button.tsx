@@ -11,16 +11,24 @@ type Props = {
   onDisconnect?: () => void;
 };
 
+type InjectedEthereum = {
+  request: (args: { method: string }) => Promise<string[]>;
+};
+
+function getInjectedEthereum(): InjectedEthereum | undefined {
+  return (window as unknown as { ethereum?: InjectedEthereum }).ethereum;
+}
+
 export function ConnectButton({ onConnect, onDisconnect }: Props) {
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const { open } = useAppKit();
-  const [isPrivy, setIsPrivy] = useState(false);
+  const [isPrivy] = useState(() => !!process.env.NEXT_PUBLIC_PRIVY_APP_ID);
   const [injectedAddr, setInjectedAddr] = useState<string | null>(null);
 
   // Fallback injected if Reown not configured
   const connectInjected = async () => {
-    const eth = (window as any).ethereum;
+    const eth = getInjectedEthereum();
     if (!eth) {
       alert("No wallet found. Install MetaMask/Rabby");
       return;
@@ -45,9 +53,8 @@ export function ConnectButton({ onConnect, onDisconnect }: Props) {
   }, [address, injectedAddr, onConnect]);
 
   useEffect(() => {
-    setIsPrivy(!!process.env.NEXT_PUBLIC_PRIVY_APP_ID);
     if (!hasReownProjectId) {
-      const eth = (window as any).ethereum;
+      const eth = getInjectedEthereum();
       if (eth) {
         eth.request({ method: "eth_accounts" }).then((accs: string[]) => {
           if (accs[0]) {
@@ -85,7 +92,7 @@ export function ConnectButton({ onConnect, onDisconnect }: Props) {
         Connect Wallet
       </button>
       <span className="hidden lg:inline text-xs text-zinc-500">
-        {hasReownProjectId ? "Reown • live" : isPrivy ? "Privy • demo" : "Injected • demo"} • 74c3…d008
+        {hasReownProjectId ? "Reown • live" : isPrivy ? "Privy • live" : "Injected wallet"}
       </span>
     </div>
   );

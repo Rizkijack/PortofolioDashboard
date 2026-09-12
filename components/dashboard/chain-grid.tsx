@@ -12,12 +12,16 @@ export function ChainGrid({
   onSelect?: (id: number | null) => void;
   selected?: number | null;
 }) {
+  // Skala bar relatif terhadap chain terbesar — sebelumnya hardcoded 8000.
+  const maxUsd = Math.max(...supportedChains.map((c) => byChain[c.id]?.usd ?? 0), 0);
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
       {supportedChains.map((c) => {
         const meta = chainMeta[c.id];
         const data = byChain[c.id];
         const active = selected === c.id;
+        const pct = maxUsd > 0 && data ? Math.min(100, (data.usd / maxUsd) * 100) : 0;
         return (
           <button
             key={c.id}
@@ -38,7 +42,7 @@ export function ChainGrid({
               <p className={`text-xs ${active ? "opacity-60" : "text-zinc-500"}`}>{data ? `${data.count} assets` : "no data"}</p>
             </div>
             <div className={`h-1 rounded-full ${active ? "bg-white/20" : "bg-zinc-100 dark:bg-zinc-800"}`}>
-              <div className="h-1 rounded-full transition-all" style={{ width: `${data ? Math.min(100, (data.usd / 8000) * 100) : 8}%`, background: active ? "#fff" : meta.color }} />
+              <div className="h-1 rounded-full transition-all" style={{ width: `${pct}%`, background: active ? "#fff" : meta.color }} />
             </div>
           </button>
         );

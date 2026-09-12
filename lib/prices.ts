@@ -1,79 +1,164 @@
-// Oracle price feed — hybrid: DeFiLlama (primary, 2s poll) + CoinGecko fallback + Pyth-ready
-// 100% real-time claim: polling 2s + SWR 1s + WS-ready hook
+/**
+ * lib/prices.ts — util harga untuk endpoint & ticker UI.
+ *
+ * Dua bentuk input:
+ *   1. `ids` gaya lama: slug CoinGecko (ethereum, usd-coin, bitcoin, binancecoin,
+ *      hyperliquid) → dipetakan ke simbol aset lalu diresolusi lewat
+ *      Binance stream + RedStone API. Tidak ada harga fallback statis.
+ *   2. `ids` kanonik: "chain:0xalamat" → resolusi penuh (Chainlink → … → DEX).
+ */
 
-export type PriceMap = Record<string, { usd: number; change24h?: number; updatedAt: number }>;
+import { CHAINS, chainByKey, parseChainKeys } from "./chains";
+import type { ChainKey, PriceQuote } from "./types";
+import { resolveQuotes, fillFromDexScreener, streamStatus, waitForTicks } from "./oracle";
+import { fetchRedstoneApi } from "./oracle/redstone";
+import { ensureStream, getStreamPrice } from "./oracle/binance";
 
-const DEFILLAMA = process.env.NEXT_PUBLIC_DEFILLAMA_API || "https://coins.llama.fi";
+// ── kompatibilitas hook UI lama ──
+export type PriceMap = Record<
+  string,
+  { usd: number | null; change24h?: number | null; updatedAt: number; source?: string }
+>;
+export const PRICE_POLL_MS = 4000;
 
-// Map coingeckoId -> defillama coin id
-const coingeckoToLlama: Record<string, string> = {
-  ethereum: "coingecko:ethereum",
-  "usd-coin": "coingecko:usd-coin",
-  tether: "coingecko:tether",
-  binancecoin: "coingecko:binancecoin",
-  bitcoin: "coingecko:bitcoin",
-  optimism: "coingecko:optimism",
-  dai: "coingecko:dai",
-  "binance-usd": "coingecko:binance-usd",
-  hyperliquid: "coingecko:hyperliquid",
+/** slug CoinGecko → simbol aset yang dikenal oracle kita. */
+const SLUG_TO_SYMBOL: Record<string, string> = {
+  ethereum: "ETH",
+  weth: "ETH",
+  "usd-coin": "USDC",
+  tether: "USDT",
+  binancecoin: "BNB",
+  bitcoin: "BTC",
+  wbtc: "BTC",
+  hyperliquid: "HYPE",
+  solana: "SOL",
+  chainlink: "LINK",
+  dogecoin: "DOGE",
+  ripple: "XRP",
+  optimism: "OP",
+  dai: "DAI",
+  "binance-usd": "BUSD",
 };
 
-// Fallback static prices untuk demo/offline
-const fallbackPrices: PriceMap = {
-  ethereum: { usd: 3420.12, change24h: 1.82, updatedAt: Date.now() },
-  "usd-coin": { usd: 1.0, change24h: 0.01, updatedAt: Date.now() },
-  tether: { usd: 1.0, change24h: -0.02, updatedAt: Date.now() },
-  binancecoin: { usd: 612.45, change24h: -0.84, updatedAt: Date.now() },
-  bitcoin: { usd: 68230, change24h: 2.11, updatedAt: Date.now() },
-  optimism: { usd: 1.85, change24h: 3.4, updatedAt: Date.now() },
-  dai: { usd: 1.0, change24h: 0.0, updatedAt: Date.now() },
-  "binance-usd": { usd: 1.0, change24h: 0, updatedAt: Date.now() },
-  hyperliquid: { usd: 24.8, change24h: 5.2, updatedAt: Date.now() },
-};
-
-export async function fetchPrices(coingeckoIds: string[]): Promise<PriceMap> {
-  if (coingeckoIds.length === 0) return {};
-
-  const llamaIds = coingeckoIds.map((id) => coingeckoToLlama[id] || `coingecko:${id}`).join(",");
-  const url = `${DEFILLAMA}/prices/current/${llamaIds}`;
-
-  try {
-    const res = await fetch(url, { next: { revalidate: 1 } });
-    if (!res.ok) throw new Error(`Llama ${res.status}`);
-    const json = await res.json();
-    const coins = json.coins as Record<string, { price: number; confidence?: number; timestamp?: number }>;
-    const out: PriceMap = {};
-    for (const id of coingeckoIds) {
-      const llamaId = coingeckoToLlama[id] || `coingecko:${id}`;
-      const data = coins[llamaId];
-      if (data?.price) {
-        out[id] = { usd: data.price, updatedAt: (data.timestamp || Date.now() / 1000) * 1000 };
-      } else if (fallbackPrices[id]) {
-        out[id] = fallbackPrices[id];
-      }
-    }
-    return out;
-  } catch {
-    // fallback: return static + try coingecko simple price
-    try {
-      const cgUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoIds.join(",")}&vs_currencies=usd&include_24hr_change=true`;
-      const r = await fetch(cgUrl, { next: { revalidate: 5 } });
-      if (r.ok) {
-        const j = await r.json();
-        const out: PriceMap = {};
-        for (const id of coingeckoIds) {
-          if (j[id]?.usd) out[id] = { usd: j[id].usd, change24h: j[id].usd_24h_change, updatedAt: Date.now() };
-          else if (fallbackPrices[id]) out[id] = fallbackPrices[id];
-        }
-        if (Object.keys(out).length) return out;
-      }
-    } catch {}
-    // final fallback
-    const out: PriceMap = {};
-    for (const id of coingeckoIds) if (fallbackPrices[id]) out[id] = fallbackPrices[id];
-    return out;
-  }
+export function slugToSymbol(slug: string): string | null {
+  return SLUG_TO_SYMBOL[slug.toLowerCase()] ?? null;
 }
 
-// Client hook helper — real-time polling
-export const PRICE_POLL_MS = 2000;
+export function isCanonicalId(id: string): boolean {
+  return /^[a-z]+:0x[a-fA-F0-9]{40}$/.test(id.trim());
+}
+
+export interface PriceRequestItem {
+  chain: ChainKey;
+  address: string;
+  symbol: string;
+  isNative?: boolean;
+}
+
+export function parsePriceIds(ids: string): PriceRequestItem[] {
+  const out: PriceRequestItem[] = [];
+  for (const raw of ids.split(",")) {
+    const item = raw.trim();
+    if (!item) continue;
+    const idx = item.indexOf(":");
+    if (idx <= 0) continue;
+    const chain = item.slice(0, idx).trim().toLowerCase();
+    const address = item.slice(idx + 1).trim();
+    if (!chainByKey(chain)) continue;
+    if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
+    out.push({ chain: chain as ChainKey, address, symbol: "" });
+  }
+  return out;
+}
+
+/**
+ * Harga untuk slug gaya CoinGecko (dipakai ticker UI).
+ * Jalur: Binance stream (sub-detik) → RedStone API → DexScreener Base USDC pair.
+ */
+export async function fetchSlugQuotes(slugs: string[]): Promise<PriceMap> {
+  const out: PriceMap = {};
+  if (!slugs.length) return out;
+
+  const wanted = new Map<string, string>(); // slug → symbol
+  for (const s of slugs) {
+    const sym = slugToSymbol(s);
+    if (sym) wanted.set(s.toLowerCase(), sym);
+  }
+  if (!wanted.size) return out;
+
+  ensureStream();
+  await waitForTicks(2500);
+
+  const symbols = [...new Set(wanted.values())];
+  const redstone = await fetchRedstoneApi(symbols).catch(() => new Map());
+
+  for (const [slug, sym] of wanted) {
+    const stream = getStreamPrice(sym);
+    if (stream) {
+      out[slug] = {
+        usd: stream.usd,
+        change24h: stream.change24h,
+        updatedAt: stream.updatedAt,
+        source: "binance-ws",
+      };
+      continue;
+    }
+    const rs = redstone.get(sym);
+    if (rs) {
+      out[slug] = { usd: rs.usd, change24h: null, updatedAt: rs.updatedAt, source: "redstone-api" };
+    } else {
+      out[slug] = { usd: null, change24h: null, updatedAt: 0, source: "none" };
+    }
+  }
+
+  return out;
+}
+
+/** Harga untuk id kanonik "chain:address" (resolusi berlapis penuh). */
+export async function fetchQuotesFor(
+  items: PriceRequestItem[]
+): Promise<{ quotes: Record<string, PriceQuote>; missing: string[] }> {
+  const quotes: Record<string, PriceQuote> = {};
+  const missing: string[] = [];
+
+  const byChain = new Map<ChainKey, PriceRequestItem[]>();
+  for (const it of items) {
+    const list = byChain.get(it.chain) ?? [];
+    list.push(it);
+    byChain.set(it.chain, list);
+  }
+
+  await Promise.all(
+    [...byChain.entries()].map(async ([chain, list]) => {
+      const withSymbol = list.filter((i) => i.symbol);
+      const resolved =
+        withSymbol.length > 0
+          ? await resolveQuotes(
+              chain,
+              withSymbol.map((i) => ({ address: i.address, symbol: i.symbol, isNative: i.isNative }))
+            )
+          : new Map<string, PriceQuote>();
+
+      await fillFromDexScreener(
+        chain,
+        list.map((i) => ({ address: i.address, symbol: i.symbol })),
+        resolved
+      );
+
+      for (const i of list) {
+        const key = `${chain}:${i.address.toLowerCase()}`;
+        const q = resolved.get(i.address.toLowerCase());
+        if (q) quotes[key] = q;
+        if (!q || q.usd === null) missing.push(key);
+      }
+    })
+  );
+
+  return { quotes, missing };
+}
+
+export function chainList(): ChainKey[] {
+  return parseChainKeys(null);
+}
+
+export { CHAINS, streamStatus, ensureStream };

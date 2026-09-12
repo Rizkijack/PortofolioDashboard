@@ -8,17 +8,28 @@ import { ChainGrid } from "@/components/dashboard/chain-grid";
 import { AssetsTable } from "@/components/dashboard/assets-table";
 import { usePrices } from "@/hooks/usePrices";
 import { usePortfolio } from "@/hooks/usePortfolio";
+import { fmtPct } from "@/lib/utils";
 
 export default function Page() {
   const [address, setAddress] = useState<string | undefined>(undefined);
   const [selectedChain, setSelectedChain] = useState<number | null>(null);
 
-  const { prices, updatedAt: priceUpdatedAt } = usePrices();
-  const { data: portfolio, loading } = usePortfolio(address, prices);
+  const { updatedAt: priceUpdatedAt } = usePrices();
+  const { data: portfolio, loading, streamLive } = usePortfolio(address);
 
   const totalUsd = portfolio?.totalUsd ?? 0;
   const changeUsd = portfolio?.change24hUsd ?? 0;
   const changePct = portfolio?.change24hPct ?? 0;
+
+  // Best performer NYATA: posisi dengan perubahan 24 jam terbesar (bukan angka karangan).
+  const bestPerformer = (portfolio?.positions ?? [])
+    .filter((p) => p.valueUsd !== null && p.change24h !== 0)
+    .sort((a, b) => b.change24h - a.change24h)[0];
+
+  const warnings = portfolio?.warnings ?? [];
+
+  // Chain yang benar-benar punya nilai (bukan klaim "5/5").
+  const activeChains = Object.values(portfolio?.byChain ?? {}).filter((c) => c.count > 0).length;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -57,38 +68,68 @@ export default function Page() {
           <div className="lg:col-span-7 rounded-[24px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold uppercase tracking-widest">Allocation • by chain</h2>
-              <span className="text-xs text-zinc-500">{address ? "Live" : "Demo data"} • {portfolio?.positions.length ?? 0} assets</span>
+              <span className="text-xs text-zinc-500">
+                {address ? (streamLive ? "Stream live" : "Live") : "Belum ada wallet"} •{" "}
+                {portfolio?.positions.length ?? 0} aset
+              </span>
             </div>
-            {/* Minimal sparkline placeholder */}
-            <div className="h-[110px] rounded-2xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 flex items-center justify-center overflow-hidden">
-              <div className="w-full px-6">
-                <div className="flex items-end gap-1.5 h-[60px]">
-                  {[18, 32, 22, 44, 28, 52, 36, 48, 30, 58, 42, 62].map((h, i) => (
-                    <div key={i} className="flex-1 rounded-t-lg bg-zinc-900 dark:bg-white" style={{ height: `${h}px`, opacity: 0.15 + (i / 12) * 0.85 }} />
-                  ))}
-                </div>
-                <div className="mt-2 flex justify-between text-[11px] uppercase tracking-widest text-zinc-500">
-                  <span>7D performance</span>
-                  <span className="text-emerald-600">+{changePct.toFixed(2)}%</span>
-                </div>
-              </div>
+            {/* Alokasi nyata per chain — bar proporsional terhadap total */}
+            <div className="rounded-2xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 p-5 flex flex-col justify-center gap-3 min-h-[110px]">
+              {!portfolio || portfolio.positions.length === 0 ? (
+                <p className="text-xs text-zinc-500">
+                  {address ? "Memuat alokasi on-chain…" : "Connect wallet untuk melihat alokasi per chain."}
+                </p>
+              ) : (
+                <>
+                  <div className="flex items-end gap-1.5 h-[60px]">
+                    {portfolio.allocation.map((a) => (
+                      <div
+                        key={a.chainKey}
+                        title={`${a.chainKey} • ${a.pct.toFixed(1)}%`}
+                        className="flex-1 rounded-t-lg bg-zinc-900 dark:bg-white transition-all"
+                        style={{ height: `${Math.max(6, a.pct)}px`, opacity: 0.3 + (a.pct / 100) * 0.7 }}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex justify-between text-[11px] uppercase tracking-widest text-zinc-500">
+                    <span>Allocation • {portfolio.allocation.length} chains</span>
+                    <span className="text-emerald-600">{fmtPct(portfolio.change24hPct)} / 24h</span>
+                  </div>
+                </>
+              )}
             </div>
             <div className="grid grid-cols-3 gap-3 text-xs">
               <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800 p-3">
                 <p className="uppercase tracking-widest text-zinc-500">Best performer</p>
-                <p className="font-semibold mt-1">HYPE • +5.2%</p>
+                <p className="font-semibold mt-1">
+                  {bestPerformer
+                    ? `${bestPerformer.token.symbol} • ${bestPerformer.change24h >= 0 ? "+" : ""}${bestPerformer.change24h.toFixed(2)}%`
+                    : "—"}
+                </p>
               </div>
               <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800 p-3">
                 <p className="uppercase tracking-widest text-zinc-500">Chains active</p>
-                <p className="font-semibold mt-1">5 / 5</p>
+                <p className="font-semibold mt-1">{activeChains} / 5</p>
               </div>
               <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800 p-3">
                 <p className="uppercase tracking-widest text-zinc-500">Oracle</p>
-                <p className="font-semibold mt-1 flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" /> 2s poll</p>
+                <p className="font-semibold mt-1 flex items-center gap-1">
+                  <span className={`h-2 w-2 rounded-full ${address ? "bg-emerald-500 animate-pulse" : "bg-zinc-400"}`} />
+                  {address ? (streamLive ? "SSE push" : "polling") : "idle"}
+                </p>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Peringatan chain parsial — transparan, bukan angka diam-diam */}
+        {warnings.length > 0 && (
+          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+            <span className="font-semibold uppercase tracking-widest">Partial data • </span>
+            {warnings.slice(0, 3).join(" — ")}
+            {warnings.length > 3 ? ` (+${warnings.length - 3} lagi)` : ""}
+          </div>
+        )}
 
         {/* Chain grid */}
         <div>
@@ -107,7 +148,7 @@ export default function Page() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold uppercase tracking-widest">Assets {selectedChain ? `• ${selectedChain}` : "• All chains"}</h2>
-            <span className="text-xs text-zinc-500">{address ? `Tracking ${address.slice(0, 6)}…` : "Connect wallet for live balances • showing demo"}</span>
+            <span className="text-xs text-zinc-500">{address ? `Tracking ${address.slice(0, 6)}…` : "Connect wallet untuk saldo live on-chain"}</span>
           </div>
           {loading && !portfolio ? (
             <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
@@ -128,21 +169,21 @@ export default function Page() {
           <h3 className="text-sm font-bold uppercase tracking-widest">How real-time works</h3>
           <div className="mt-4 grid md:grid-cols-3 gap-4 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
             <div>
-              <p className="font-semibold text-zinc-900 dark:text-white">Oracle hybrid</p>
-              <p className="mt-1">DeFiLlama primary (2s poll, 1s SWR) + CoinGecko fallback + Pyth WS ready. Timestamp live di ticker.</p>
+              <p className="font-semibold text-zinc-900 dark:text-white">Oracle berlapis</p>
+              <p className="mt-1">Chainlink on-chain → RedStone push (Ink) → Binance WS stream → RedStone API → DexScreener → Blockscout rate. Tanpa harga → “—”, bukan karangan.</p>
             </div>
             <div>
               <p className="font-semibold text-zinc-900 dark:text-white">Onchain reads</p>
-              <p className="mt-1">multicall per chain (Base/BSC/Ink/HYPE/HOOD) via viem fallback RPC. Balances refresh 8s + on block.</p>
+              <p className="mt-1">Discovery via Blockscout v2 / Routescan, saldo via eth_getBalance + multicall balanceOf per chain dengan RPC failover. Push via SSE /api/stream.</p>
             </div>
             <div>
               <p className="font-semibold text-zinc-900 dark:text-white">Wallet</p>
-              <p className="mt-1">Reown AppKit + Privy adapter. Placeholder sudah jalan dengan injected wallet; tinggal isi Project ID untuk WalletConnect.</p>
+              <p className="mt-1">Reown AppKit (WalletConnect, 300+ wallet) + fallback injected. Isi NEXT_PUBLIC_REOWN_PROJECT_ID untuk modal penuh.</p>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2 text-xs">
             <a href="/api/prices?ids=ethereum,usd-coin" target="_blank" className="rounded-full border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 hover:bg-zinc-50">GET /api/prices</a>
-            <a href="/api/portfolio" target="_blank" className="rounded-full border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 hover:bg-zinc-50">GET /api/portfolio</a>
+            <a href="/api/chains" target="_blank" className="rounded-full border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 hover:bg-zinc-50">GET /api/chains</a>
             <span className="rounded-full bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 px-3 py-1.5">NEXT_PUBLIC_REOWN_PROJECT_ID</span>
           </div>
         </div>

@@ -7,24 +7,24 @@ Tema: **minimal-bold** — bento grid, off-black + white, 1 accent emerald, typo
 ## Arsitektur Simple
 
 ```
-Wallet (Reown AppKit + Privy adapter / injected fallback)
-  → wagmi/viem + fallback RPC
-    → Portfolio Engine (multicall: native + ERC20 curated)
-      → Oracle Hybrid (DeFiLlama 2s poll + CoinGecko fallback + Pyth WS ready)
-        → Next.js 16 API Proxy (/api/prices, /api/portfolio)
+Wallet (Reown AppKit + injected fallback)
+  → wagmi/viem + RPC failover per chain
+    → Portfolio Engine (discovery Blockscout v2/Routescan + eth_getBalance + multicall balanceOf)
+      → Oracle berlapis (Chainlink on-chain → RedStone push/API → Binance WS → DexScreener → Blockscout rate)
+        → Next.js 16 Route Handlers (/api/portfolio, /api/prices, /api/chains, /api/token, /api/stream SSE)
           → UI (NetWorth bento + ChainGrid + AssetsTable + Price Ticker)
 ```
 
-No heavy indexer, no DB. Serverless-ready Vercel. Semua fetch via viem fallback + edge cache `s-maxage=1-2`.
+No heavy indexer, no DB. Serverless-ready Vercel. Harga `null` → tampil "—", tidak pernah dikarang.
 
 ## Stack
 
 - **Next.js 16.3.5** (App Router, Turbopack)
 - **Tailwind v4** + Geist
-- **wagmi / viem** (siap aktif setelah `pnpm add wagmi viem`)
-- **TanStack Query** (optional, fallback passthrough)
-- **Reown AppKit** (WalletConnect) + Privy adapter
-- **Recharts-ready** (sparkline placeholder)
+- **wagmi / viem** (multicall + RPC failover)
+- **TanStack Query**
+- **Reown AppKit** (WalletConnect) + injected fallback
+- **lightweight-charts** (chart token detail)
 
 ## Chains
 
@@ -34,16 +34,17 @@ No heavy indexer, no DB. Serverless-ready Vercel. Semua fetch via viem fallback 
 | BSC | 56 | `https://bsc-dataseed.binance.org` | bscscan.com |
 | Ink | 57073 | `https://rpc-gel.inkonchain.com` | explorer.inkonchain.com |
 | HyperEVM | 999 | `https://rpc.hyperliquid.xyz/evm` | hyperevmscan.io |
-| Robinhood | 4663 | `https://mainnet.rpc.robinhoodchain.io` | robinhoodchain.blockscout.com |
+| Robinhood | 4663 | `https://robinhood-rpc.publicnode.com` | robinhoodchain.blockscout.com |
 
-Chain config di `lib/chains.ts` — semua RPC configurable via env.
+Chain config di `lib/chains.ts` (`RPC_FAILOVER`) — semua RPC configurable via env, failover otomatis via `withFailover()`.
 
 ## Oracle Real-time
 
-- **Primary:** DeFiLlama `https://coins.llama.fi/prices/current/...` poll **2s**, cache **1s**
-- **Fallback:** CoinGecko `simple/price` poll **5s**
-- **WS-ready:** Pyth Hermes `wss://hermes.pyth.network/ws` (hook `usePrices` sudah polling, tinggal swap ke WS)
-- UI menampilkan `priceUpdatedAt` + pulse hijau + `2s poll` badge → klaim real-time verifiable.
+- **Tier 1:** Chainlink on-chain (`latestRoundData` via multicall) + RedStone push feed (Ink)
+- **Tier 2:** Binance WS stream (sub-detik, aset mayor: ETH/BTC/BNB/HYPE/SOL/LINK/DOGE/XRP) + RedStone API (median multi-exchange)
+- **Tier 3:** DexScreener (long-tail) + Blockscout `exchange_rate` (token Robinhood)
+- Aturan keras: tidak ada harga → `usd: null` → UI tampil "—". Tidak ada fallback statis.
+- Push ke UI via SSE `/api/stream` (event `portfolio` + `prices`), snapshot penuh tiap 20s sebagai jaring pengaman.
 
 ## Wallet — Privy / Reown
 
@@ -51,59 +52,61 @@ Chain config di `lib/chains.ts` — semua RPC configurable via env.
 - `NEXT_PUBLIC_PRIVY_APP_ID` dari **dashboard.privy.io** → opsional, jika diisi UI toggle ke Privy
 - Saat ini **injected wallet** (MetaMask/Rabby) sudah jalan sebagai fallback, jadi dashboard bisa dites tanpa API key.
 
-> Kredensial bisa diisi terakhir — struktur sudah 100% jalan dengan demo data.
+> Tanpa `NEXT_PUBLIC_REOWN_PROJECT_ID`, connect fallback ke injected wallet (MetaMask/Rabby).
 
 ## Quick Start
 
 ```bash
 cp .env.example .env.local
-# isi REOWN_PROJECT_ID / PRIVY_APP_ID / ALCHEMY_KEY jika ada
+# isi NEXT_PUBLIC_REOWN_PROJECT_ID dari cloud.reown.com
 
 pnpm install
 pnpm dev
 # http://localhost:3000
 ```
 
-Demo data: jika wallet belum connect, portfolio generate mock deterministic dari address (atau `0xdead…`) + price map live, jadi UI tetap terlihat real.
+Tanpa wallet terhubung, dashboard menampilkan empty state (bukan angka contoh) — hubungkan wallet untuk saldo live on-chain.
 
 ## API Routes
 
-- `GET /api/prices?ids=ethereum,usd-coin,binancecoin` → `PriceMap`
-- `GET /api/portfolio?address=0x...` → `PortfolioSummary` (totalUsd, byChain, positions)
-- `GET /api/chains` (TODO) → chain health
+- `GET /api/prices?ids=ethereum,usd-coin,binancecoin` → `{ quotes, fetchedAt, missing }` (slug ticker)
+- `GET /api/prices?ids=base:0x…,robinhood:0x…` → `{ quotes, fetchedAt, missing }` (id kanonik, resolusi penuh)
+- `GET /api/portfolio?address=0x...` → `PortfolioResponse` (chains, totalValueUsd, allocation, sourcesUsed)
+- `GET /api/chains` → metadata + kesehatan RPC + status stream
+- `GET /api/token/[chain]/[addr]?owner=0x…&chart=24h` → detail token + OHLCV GeckoTerminal
+- `GET /api/stream?address=0x…` → SSE (`hello`, `portfolio`, `prices`, `heartbeat`)
 
-Semua API proxy cache `s-maxage=1-2, stale-while-revalidate`.
+Semua GET pakai `Cache-Control` SWR singkat; tanpa address, `/api/portfolio` 400 (tidak ada data contoh).
 
 ## File Tree
 
 ```
 app/
-  layout.tsx (Providers)
-  page.tsx (dashboard bento)
-  globals.css (minimal-bold tokens)
+  layout.tsx (Providers: Wagmi + Query + AppKit)
+  page.tsx (dashboard bento, allocation nyata, warnings parsial)
+  globals.css (dark minimal-bold tokens)
   api/prices/route.ts
   api/portfolio/route.ts
+  api/chains/route.ts
+  api/token/[chain]/[addr]/route.ts
+  api/stream/route.ts (SSE)
 lib/
-  chains.ts (5 chains, fallback viem)
-  tokens.ts (curated per chain)
-  prices.ts (hybrid oracle)
-  portfolio.ts (mock + onchain stub)
-  utils.ts (fmt)
+  chains.ts (5 chains + RPC_FAILOVER terverifikasi)
+  rpc.ts (public client + withFailover + probe)
+  discovery/ (Blockscout v2 / Routescan — saldo nyata)
+  oracle/ (chainlink, redstone, binance WS, dexscreener)
+  prices.ts (fetchSlugQuotes + fetchQuotesFor — tanpa fallback statis)
+  portfolio.ts (fetchPortfolio — multicall on-chain)
+  compat.ts (PortfolioResponse → ringkasan UI)
+  cache.ts (TTl + SWR + fetchWithTimeout)
+  format.ts / utils.ts (null → "—")
 components/
-  providers.tsx (Query fallback)
-  wallet/connect-button.tsx
+  providers.tsx (Wagmi + Query + createAppKit)
+  wallet/connect-button.tsx (Reown modal + injected fallback)
   dashboard/networth-card, chain-grid, assets-table, price-ticker
 hooks/
-  usePrices (2s poll), usePortfolio (8s)
+  usePrices (poll), usePortfolio (snapshot + SSE push)
 ```
-
-## Next Steps (setelah struktur)
-
-1. `pnpm add wagmi viem @tanstack/react-query @reown/appkit @reown/appkit-adapter-wagmi`
-2. Aktifkan `lib/wagmi.ts` (uncomment) + `components/providers.tsx` ke WagmiProvider + AppKit
-3. Implement `fetchPortfolioOnchain` via `publicClient.multicall` (balanceOf + getBalance)
-4. Swap `usePrices` poll ke Pyth WS jika mau <400ms
-5. Deploy Vercel, isi env.
 
 ## Verifikasi
 

@@ -18,7 +18,7 @@ export function PriceTicker() {
         {items.map(([id, v]) => (
           <span key={id} className="shrink-0 flex items-center gap-1.5">
             <span className="font-semibold uppercase">{id.slice(0, 4)}</span>
-            <span className="font-mono">{fmtUsd(v.usd)}</span>
+            <span className="font-mono tabular-nums">{fmtUsd(v.usd)}</span>
             {typeof v.change24h === "number" && (
               <span className={v.change24h >= 0 ? "text-emerald-600" : "text-red-600"}>
                 {v.change24h >= 0 ? "+" : ""}{v.change24h.toFixed(2)}%

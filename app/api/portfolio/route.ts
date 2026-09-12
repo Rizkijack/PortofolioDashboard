@@ -1,15 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateMockPortfolio } from "@/lib/portfolio";
-import { fetchPrices } from "@/lib/prices";
-import { getUniqueCoingeckoIds } from "@/lib/tokens";
+import { fetchPortfolio } from "@/lib/portfolio";
+import { isAddress, parseChainKeys } from "@/lib/chains";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const address = req.nextUrl.searchParams.get("address") as `0x${string}` | null;
-  const ids = getUniqueCoingeckoIds();
-  const prices = await fetchPrices(ids);
-  const portfolio = generateMockPortfolio(address || undefined, prices);
-  return NextResponse.json(
-    { success: true, data: portfolio },
-    { headers: { "Cache-Control": "public, s-maxage=2, stale-while-revalidate=4" } }
-  );
+  const sp = req.nextUrl.searchParams;
+  const address = sp.get("address");
+
+  if (!isAddress(address)) {
+    return NextResponse.json(
+      { error: "invalid address — expected 0x-prefixed 40 hex chars" },
+      { status: 400 }
+    );
+  }
+
+  const chains = parseChainKeys(sp.get("chains"));
+  const includeZero = sp.get("includeZero") === "1" || sp.get("includeZero") === "true";
+
+  try {
+    const data = await fetchPortfolio(address, chains, { includeZero });
+    return NextResponse.json(data, {
+      headers: { "Cache-Control": "public, s-maxage=3, stale-while-revalidate=10" },
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "portfolio fetch failed" },
+      { status: 500 }
+    );
+  }
 }

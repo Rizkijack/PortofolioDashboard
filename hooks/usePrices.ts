@@ -1,9 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getUniqueCoingeckoIds } from "@/lib/tokens";
-import { PRICE_POLL_MS, type PriceMap } from "@/lib/prices";
+import type { PriceMap } from "@/lib/prices";
+import { PRICE_POLL_MS } from "@/lib/prices";
 
+/**
+ * Ticker harga untuk aset mayor dalam daftar kurasi.
+ *
+ * Sumber sebenarnya ditentukan server (Binance stream → RedStone API).
+ * Kalau sebuah aset tidak punya harga, nilainya `null` — UI menampilkannya "—".
+ */
 export function usePrices(pollMs = PRICE_POLL_MS) {
   const [prices, setPrices] = useState<PriceMap>({});
   const [loading, setLoading] = useState(true);
@@ -12,30 +18,35 @@ export function usePrices(pollMs = PRICE_POLL_MS) {
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval>;
+    const ctrl = new AbortController();
 
-    async function load() {
+    async function load(showSpinner: boolean) {
       try {
-        const ids = getUniqueCoingeckoIds();
-        const res = await globalThis.fetch(`/api/prices?ids=${ids.join(",")}`, { cache: "no-store" });
+        const ids = ["ethereum", "bitcoin", "binancecoin", "hyperliquid", "solana", "chainlink"];
+        const res = await fetch(`/api/prices?ids=${ids.join(",")}`, {
+          cache: "no-store",
+          signal: ctrl.signal,
+        });
         if (!res.ok) throw new Error(`prices ${res.status}`);
-        const json = await res.json();
+        const json = (await res.json()) as { quotes?: PriceMap; data?: PriceMap };
         if (cancelled) return;
-        setPrices(json.data);
+        setPrices(json.quotes ?? json.data ?? {});
         setUpdatedAt(Date.now());
         setError(null);
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "price fetch failed");
+      } catch (e) {
+        if (cancelled || (e instanceof DOMException && e.name === "AbortError")) return;
+        setError(e instanceof Error ? e.message : "price fetch failed");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && showSpinner) setLoading(false);
       }
     }
 
-    load();
-    timer = setInterval(load, pollMs);
+    load(true);
+    const t = setInterval(() => load(false), pollMs);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      clearInterval(t);
+      ctrl.abort();
     };
   }, [pollMs]);
 
