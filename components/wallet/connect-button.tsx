@@ -16,6 +16,7 @@ type InjectedEthereum = {
 };
 
 function getInjectedEthereum(): InjectedEthereum | undefined {
+  if (typeof window === "undefined") return undefined;
   return (window as unknown as { ethereum?: InjectedEthereum }).ethereum;
 }
 
