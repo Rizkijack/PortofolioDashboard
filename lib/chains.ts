@@ -1,16 +1,5 @@
-// viem is optional until pnpm add wagmi viem — fallback so build tidak fail
-let defineChain: any = (c: any) => c;
-let baseChain: any = { id: 8453, name: "Base", rpcUrls: { default: { http: ["https://mainnet.base.org"] } } };
-let bscChain: any = { id: 56, name: "BSC", rpcUrls: { default: { http: ["https://bsc-dataseed.binance.org"] } } };
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const viem = require("viem");
-  if (viem.defineChain) defineChain = viem.defineChain;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const chains = require("viem/chains");
-  if (chains.base) baseChain = chains.base;
-  if (chains.bsc) bscChain = chains.bsc;
-} catch {}
+import { defineChain } from "viem";
+import { base as baseChain, bsc as bscChain } from "viem/chains";
 
 // === Custom chains ===
 
@@ -69,7 +58,7 @@ export const base = {
       http: [process.env.NEXT_PUBLIC_RPC_BASE || "https://mainnet.base.org", "https://base.llamarpc.com"],
     },
   },
-} as typeof baseChain;
+} as unknown as typeof baseChain;
 
 export const bsc = {
   ...bscChain,
@@ -79,7 +68,7 @@ export const bsc = {
       http: [process.env.NEXT_PUBLIC_RPC_BSC || "https://bsc-dataseed.binance.org", "https://bsc.llamarpc.com"],
     },
   },
-} as typeof bscChain;
+} as unknown as typeof bscChain;
 
 export const supportedChains = [base, bsc, ink, hyperEVM, robinhoodChain] as const;
 

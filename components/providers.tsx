@@ -1,22 +1,20 @@
 "use client";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { WagmiProvider } from "wagmi";
 import { useState, type ReactNode } from "react";
-
-// Minimal providers — TanStack Query + wagmi/Reown akan di-inject di sini
-// Untuk build awal tanpa deps, fallback ke passthrough agar tidak fail "Cannot find module"
-let QueryClientProvider: any = ({ children }: any) => children;
-let QueryClient: any = class {};
-let hasQuery = false;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const rq = require("@tanstack/react-query");
-  QueryClient = rq.QueryClient;
-  QueryClientProvider = rq.QueryClientProvider;
-  hasQuery = true;
-} catch {}
+import { wagmiConfig } from "@/lib/wagmi";
 
 export function Providers({ children }: { children: ReactNode }) {
-  const [qc] = useState(() => (hasQuery ? new QueryClient({ defaultOptions: { queries: { staleTime: 2000, retry: 1 } } }) : null));
-  if (!hasQuery || !qc) return <>{children}</>;
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  const [qc] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { staleTime: 2000, retry: 1 } },
+      })
+  );
+  return (
+    <WagmiProvider config={wagmiConfig}>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </WagmiProvider>
+  );
 }
