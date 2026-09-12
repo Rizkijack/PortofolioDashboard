@@ -3,15 +3,45 @@
 import { fmtNumber, fmtUsd } from "@/lib/utils";
 import { chainMeta, getChainById, CHAINS } from "@/lib/chains";
 import type { PortfolioPosition } from "@/lib/compat";
+import { filterAndSortPositions, type FilterState } from "@/lib/filter";
 
 export function AssetsTable({
   positions,
   filterChain,
+  search,
+  hideDust,
+  hideSuspicious,
+  hideUnpriced,
+  sortBy,
+  dustThreshold,
 }: {
   positions: PortfolioPosition[];
   filterChain?: number | null;
+  search?: string;
+  hideDust?: boolean;
+  hideSuspicious?: boolean;
+  hideUnpriced?: boolean;
+  sortBy?: FilterState["sortBy"];
+  dustThreshold?: number;
 }) {
-  const filtered = filterChain ? positions.filter((p) => p.chainId === filterChain) : positions;
+  const chainFiltered = filterChain ? positions.filter((p) => p.chainId === filterChain) : positions;
+  const hasFilterProp =
+    search !== undefined ||
+    hideDust !== undefined ||
+    hideSuspicious !== undefined ||
+    hideUnpriced !== undefined ||
+    sortBy !== undefined ||
+    dustThreshold !== undefined;
+  const filtered = hasFilterProp
+    ? filterAndSortPositions(chainFiltered, {
+        search: search ?? "",
+        hideDust: hideDust ?? false,
+        hideSuspicious: hideSuspicious ?? false,
+        hideUnpriced: hideUnpriced ?? false,
+        sortBy: sortBy ?? "valueDesc",
+        dustThreshold: dustThreshold ?? 1,
+      })
+    : chainFiltered;
   if (!filtered.length) {
     return (
       <div className="rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 p-10 text-center text-sm text-zinc-500">

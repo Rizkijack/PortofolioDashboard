@@ -1,18 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ConnectButton } from "@/components/wallet/connect-button";
 import { PriceTicker } from "@/components/dashboard/price-ticker";
 import { NetworthCard } from "@/components/dashboard/networth-card";
 import { ChainGrid } from "@/components/dashboard/chain-grid";
 import { AssetsTable } from "@/components/dashboard/assets-table";
+import { FilterBar } from "@/components/dashboard/filter-bar";
+import { HistoryChart } from "@/components/dashboard/history-chart";
+import { TxHistory } from "@/components/dashboard/tx-history";
 import { usePrices } from "@/hooks/usePrices";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { fmtPct } from "@/lib/utils";
+import { filterAndSortPositions, getFilterCounts, type FilterState } from "@/lib/filter";
+
+const DEFAULT_FILTERS: FilterState = {
+  search: "",
+  hideDust: false,
+  hideSuspicious: false,
+  hideUnpriced: false,
+  sortBy: "valueDesc",
+  dustThreshold: 1,
+};
 
 export default function HomePage() {
   const [address, setAddress] = useState<string | undefined>(undefined);
   const [selectedChain, setSelectedChain] = useState<number | null>(null);
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
 
   const { updatedAt: priceUpdatedAt } = usePrices();
   const { data: portfolio, loading, streamLive } = usePortfolio(address);
@@ -30,6 +44,24 @@ export default function HomePage() {
 
   // Chain yang benar-benar punya nilai (bukan klaim "5/5").
   const activeChains = Object.values(portfolio?.byChain ?? {}).filter((c) => c.count > 0).length;
+
+  // Filtered positions untuk FilterBar counts & export
+  const allPositions = useMemo(() => portfolio?.positions ?? [], [portfolio?.positions]);
+  const filterCounts = useMemo(() => getFilterCounts(allPositions, filters), [allPositions, filters]);
+  const filteredForDisplay = useMemo(() => {
+    const filtered = filterAndSortPositions(allPositions, filters);
+    return selectedChain ? filtered.filter((p) => p.chainId === selectedChain) : filtered;
+  }, [allPositions, filters, selectedChain]);
+
+  const countsForBar = useMemo(
+    () => ({
+      total: allPositions.length,
+      filtered: filteredForDisplay.length,
+      hiddenDust: filterCounts.hiddenDust,
+      hiddenSuspicious: filterCounts.hiddenSuspicious,
+    }),
+    [allPositions.length, filteredForDisplay.length, filterCounts.hiddenDust, filterCounts.hiddenSuspicious]
+  );
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -122,6 +154,9 @@ export default function HomePage() {
           </div>
         </div>
 
+        {/* Net worth history chart — 7d/30d/90d */}
+        <HistoryChart address={address} />
+
         {/* Peringatan chain parsial — transparan, bukan angka diam-diam */}
         {warnings.length > 0 && (
           <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
@@ -160,8 +195,31 @@ export default function HomePage() {
               </div>
             </div>
           ) : (
-            <AssetsTable positions={portfolio?.positions ?? []} filterChain={selectedChain} />
+            <>
+              <FilterBar filters={filters} onChange={setFilters} counts={countsForBar} filteredPositions={filteredForDisplay} />
+              <div className="mt-4">
+                <AssetsTable
+                  positions={portfolio?.positions ?? []}
+                  filterChain={selectedChain}
+                  search={filters.search}
+                  hideDust={filters.hideDust}
+                  hideSuspicious={filters.hideSuspicious}
+                  hideUnpriced={filters.hideUnpriced}
+                  sortBy={filters.sortBy}
+                  dustThreshold={filters.dustThreshold}
+                />
+              </div>
+            </>
           )}
+        </div>
+
+        {/* Transaction History */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold uppercase tracking-widest">Transactions</h2>
+            <span className="text-xs text-zinc-500">{address ? "On-chain history" : "Connect wallet"}</span>
+          </div>
+          <TxHistory address={address} />
         </div>
 
         {/* How real-time works */}
@@ -184,6 +242,8 @@ export default function HomePage() {
           <div className="mt-4 flex flex-wrap gap-2 text-xs">
             <a href="/api/prices?ids=ethereum,usd-coin" target="_blank" className="rounded-full border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 hover:bg-zinc-50">GET /api/prices</a>
             <a href="/api/chains" target="_blank" className="rounded-full border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 hover:bg-zinc-50">GET /api/chains</a>
+            <a href="/api/tx?address=0x3b19C7158372Efa5A576618d6a26aA3E6c8dD9B2&limit=5" target="_blank" className="rounded-full border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 hover:bg-zinc-50">GET /api/tx</a>
+            <a href="/api/history?address=0x3b19C7158372Efa5A576618d6a26aA3E6c8dD9B2&range=7d" target="_blank" className="rounded-full border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 hover:bg-zinc-50">GET /api/history</a>
             <span className="rounded-full bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 px-3 py-1.5">NEXT_PUBLIC_REOWN_PROJECT_ID</span>
           </div>
         </div>
