@@ -9,6 +9,7 @@ import { AssetsTable } from "@/components/dashboard/assets-table";
 import { FilterBar } from "@/components/dashboard/filter-bar";
 import { HistoryChart } from "@/components/dashboard/history-chart";
 import { TxHistory } from "@/components/dashboard/tx-history";
+import { DefiPositions } from "@/components/dashboard/defi-positions";
 import { usePrices } from "@/hooks/usePrices";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { fmtPct } from "@/lib/utils";
@@ -222,6 +223,15 @@ export default function HomePage() {
           <TxHistory address={address} />
         </div>
 
+        {/* DeFi Positions — Uniswap / SushiSwap / DexScreener / GeckoTerminal / Birdeye */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold uppercase tracking-widest">DeFi Positions</h2>
+            <span className="text-xs text-zinc-500">{address ? "LP • Vault • Staking" : "Connect wallet"}</span>
+          </div>
+          <DefiPositions address={address} />
+        </div>
+
         {/* How real-time works */}
         <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
           <h3 className="text-sm font-bold uppercase tracking-widest">How real-time works</h3>
@@ -235,8 +245,8 @@ export default function HomePage() {
               <p className="mt-1">Discovery via Blockscout v2 / Routescan, saldo via eth_getBalance + multicall balanceOf per chain dengan RPC failover. Push via SSE /api/stream.</p>
             </div>
             <div>
-              <p className="font-semibold text-zinc-900 dark:text-white">Wallet</p>
-              <p className="mt-1">Reown AppKit (WalletConnect, 300+ wallet) + fallback injected. Isi NEXT_PUBLIC_REOWN_PROJECT_ID untuk modal penuh.</p>
+              <p className="font-semibold text-zinc-900 dark:text-white">DeFi</p>
+              <p className="mt-1">LP/Vault discovery via Uniswap V2/V3, SushiSwap, DexScreener, GeckoTerminal, Birdeye (opsional BIRDEYE_API_KEY). Agregasi + dedup per pool.</p>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2 text-xs">
@@ -244,6 +254,7 @@ export default function HomePage() {
             <a href="/api/chains" target="_blank" className="rounded-full border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 hover:bg-zinc-50">GET /api/chains</a>
             <a href="/api/tx?address=0x3b19C7158372Efa5A576618d6a26aA3E6c8dD9B2&limit=5" target="_blank" className="rounded-full border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 hover:bg-zinc-50">GET /api/tx</a>
             <a href="/api/history?address=0x3b19C7158372Efa5A576618d6a26aA3E6c8dD9B2&range=7d" target="_blank" className="rounded-full border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 hover:bg-zinc-50">GET /api/history</a>
+            <a href="/api/defi?address=0x3b19C7158372Efa5A576618d6a26aA3E6c8dD9B2" target="_blank" className="rounded-full border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 hover:bg-zinc-50">GET /api/defi</a>
             <span className="rounded-full bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 px-3 py-1.5">NEXT_PUBLIC_REOWN_PROJECT_ID</span>
           </div>
         </div>
