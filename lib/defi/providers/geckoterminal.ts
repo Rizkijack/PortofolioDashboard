@@ -14,14 +14,26 @@ import type { DefiDiscoveryProvider, DefiPosition } from "../types";
 const GT_BASE = "https://api.geckoterminal.com/api/v2";
 
 // Mapping ChainKey -> GeckoTerminal network slug.
-// Ink, HyperEVM, Robinhood belum tersedia di GeckoTerminal -> null (return [] graceful).
+// Semua 5 chain dipetakan; jika slug belum ada di GeckoTerminal, fetch akan 404 dan graceful fallback [].
 const GT_NETWORK: Record<ChainKey, string | null> = {
   base: "base",
   bsc: "bsc",
-  ink: null,
-  hyperevm: null,
-  robinhood: null,
+  ink: "ink",
+  hyperevm: "hyperevm",
+  robinhood: "robinhood",
 };
+
+/**
+ * Helper: return array of GeckoTerminal network slugs to try for a chain.
+ * - hyperevm: coba "hyperevm" dulu, fallback "hyperliquid" (slug alternatif di GeckoTerminal).
+ * - chain lain: single slug.
+ */
+function gtSlugs(chain: ChainKey): string[] {
+  const primary = GT_NETWORK[chain];
+  if (!primary) return [];
+  if (chain === "hyperevm") return [primary, "hyperliquid"].filter(Boolean) as string[];
+  return [primary];
+}
 
 // ───────────────────────── GeckoTerminal types ─────────────────────────
 
@@ -146,14 +158,15 @@ function mapGtDataToPosition(
 /**
  * Enrich daftar pool addresses via GeckoTerminal.
  * Fetch per pool `GET /networks/{network}/pools/{poolAddress}?include=base_token,quote_token` batch 5.
+ * Untuk hyperevm coba 2 slug ["hyperevm","hyperliquid"] sampai sukses.
  * Graceful fallback [] per pool jika 404/error.
  */
 export async function enrichWithGeckoTerminal(
   chain: ChainKey,
   poolAddresses: string[]
 ): Promise<DefiPosition[]> {
-  const network = GT_NETWORK[chain];
-  if (!network || !poolAddresses.length) return [];
+  const slugs = gtSlugs(chain);
+  if (!slugs.length || !poolAddresses.length) return [];
 
   const unique = [...new Set(poolAddresses.map((a) => a.toLowerCase()).filter(Boolean))];
   if (!unique.length) return [];
@@ -166,22 +179,40 @@ export async function enrichWithGeckoTerminal(
     const batch = unique.slice(i, i + BATCH);
     const results = await Promise.all(
       batch.map(async (pool) => {
-        const url = `${GT_BASE}/networks/${network}/pools/${pool}?include=base_token,quote_token`;
-        try {
-          const res = await fetchWithTimeout(url, {
-            timeoutMs: 8_000,
-            headers: { accept: "application/json" },
-          });
-          if (!res.ok) return null;
-          const json = (await res.json()) as GtResponse;
-          const data = json.data;
-          const item: GtPoolData | null = Array.isArray(data) ? (data[0] ?? null) : (data as GtPoolData | null);
-          if (!item) return null;
-          const pos = mapGtDataToPosition(chain, item, json.included);
-          return pos;
-        } catch {
-          return null;
+        for (const network of slugs) {
+          const url = `${GT_BASE}/networks/${network}/pools/${pool}?include=base_token,quote_token`;
+          try {
+            const res = await fetchWithTimeout(url, {
+              timeoutMs: 8_000,
+              headers: { accept: "application/json" },
+            });
+            if (!res.ok) {
+              // 404 -> coba slug berikutnya; error lain juga coba fallback jika ada slug lain
+              if (res.status === 404) continue;
+              // untuk status non-404 tapi ok==false, jangan langsung null jika masih ada slug cadangan
+              const isLast = network === slugs[slugs.length - 1];
+              if (!isLast) continue;
+              return null;
+            }
+            const json = (await res.json()) as GtResponse;
+            const data = json.data;
+            const item: GtPoolData | null = Array.isArray(data) ? (data[0] ?? null) : (data as GtPoolData | null);
+            if (!item) {
+              // data kosong dianggap not-found untuk slug ini, coba slug berikutnya
+              const isLast = network === slugs[slugs.length - 1];
+              if (!isLast) continue;
+              return null;
+            }
+            const pos = mapGtDataToPosition(chain, item, json.included);
+            return pos;
+          } catch {
+            // network error -> coba slug berikutnya jika ada
+            const isLast = network === slugs[slugs.length - 1];
+            if (!isLast) continue;
+            return null;
+          }
         }
+        return null;
       })
     );
 
@@ -201,8 +232,8 @@ export const geckoterminalDefiProvider: DefiDiscoveryProvider = {
   name: "GeckoTerminal",
   supportsChain: (c: ChainKey) => Boolean(GT_NETWORK[c]),
   discoverPositions: async (chain: ChainKey, address: string): Promise<DefiPosition[]> => {
-    const network = GT_NETWORK[chain];
-    if (!network) return [];
+    const slugs = gtSlugs(chain);
+    if (!slugs.length) return [];
 
     const lower = address.toLowerCase();
     const key = `defi:geckoterminal:${chain}:${lower}`;
@@ -211,37 +242,57 @@ export const geckoterminalDefiProvider: DefiDiscoveryProvider = {
       const { value } = await globalCache.swr<DefiPosition[]>(
         key,
         async () => {
-          const url = `${GT_BASE}/networks/${network}/addresses/${lower}/pools?include=base_token,quote_token`;
-          try {
-            const res = await fetchWithTimeout(url, {
-              timeoutMs: 8_000,
-              headers: { accept: "application/json" },
-            });
-            if (!res.ok) return [];
-            const json = (await res.json()) as GtResponse;
-            const rawData = json.data;
-            if (!rawData) return [];
-            const dataArray: GtPoolData[] = Array.isArray(rawData) ? rawData : [rawData as GtPoolData];
-            if (!dataArray.length) return [];
-
-            const included = json.included;
-            const positions: DefiPosition[] = [];
-            const seen = new Set<string>();
-
-            for (const item of dataArray) {
-              try {
-                const pos = mapGtDataToPosition(chain, item, included);
-                if (seen.has(pos.poolAddress)) continue;
-                seen.add(pos.poolAddress);
-                positions.push(pos);
-              } catch {
-                // skip malformed pool
+          for (const network of slugs) {
+            const url = `${GT_BASE}/networks/${network}/addresses/${lower}/pools?include=base_token,quote_token`;
+            try {
+              const res = await fetchWithTimeout(url, {
+                timeoutMs: 8_000,
+                headers: { accept: "application/json" },
+              });
+              if (!res.ok) {
+                if (res.status === 404) continue;
+                const isLast = network === slugs[slugs.length - 1];
+                if (!isLast) continue;
+                return [];
               }
+              const json = (await res.json()) as GtResponse;
+              const rawData = json.data;
+              if (!rawData || (Array.isArray(rawData) && rawData.length === 0)) {
+                const isLast = network === slugs[slugs.length - 1];
+                if (!isLast) continue;
+                return [];
+              }
+              const dataArray: GtPoolData[] = Array.isArray(rawData) ? rawData : [rawData as GtPoolData];
+              if (!dataArray.length) {
+                const isLast = network === slugs[slugs.length - 1];
+                if (!isLast) continue;
+                return [];
+              }
+
+              const included = json.included;
+              const positions: DefiPosition[] = [];
+              const seen = new Set<string>();
+
+              for (const item of dataArray) {
+                try {
+                  const pos = mapGtDataToPosition(chain, item, included);
+                  if (seen.has(pos.poolAddress)) continue;
+                  seen.add(pos.poolAddress);
+                  positions.push(pos);
+                } catch {
+                  // skip malformed pool
+                }
+              }
+              // Jika sukses fetch tapi positions kosong, tetap return [] tanpa coba slug lain
+              // kecuali kita sudah handle empty data di atas. Di sini positions dihasilkan dari data yang ada.
+              return positions;
+            } catch {
+              const isLast = network === slugs[slugs.length - 1];
+              if (!isLast) continue;
+              return [];
             }
-            return positions;
-          } catch {
-            return [];
           }
+          return [];
         },
         { freshMs: 20_000, staleMs: 120_000 }
       );

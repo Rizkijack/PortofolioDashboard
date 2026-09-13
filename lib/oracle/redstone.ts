@@ -60,7 +60,7 @@ export const REDSTONE_PUSH: Partial<Record<ChainKey, Array<{ pair: string; addre
   ink: [
     { pair: "ETH / USD", address: "0xe5867B1d421f0b52697F16e2ac437e87d66D5fbF" },
     { pair: "BTC / USD", address: "0x13433B1949d9141Be52Ae13Ad7e7E4911228414e" },
-    { pair: "USDC / USD", address: "0x58fa68A373956285dDfb340EDf755246f8DfCa16" },
+    { pair: "USDC / USD", address: "0x58fa68A373956285dDfb340EDf755246f8DfCA16" },
     { pair: "USDT / USD", address: "0xb4fe9028A4D4D8B3d00e52341F2BB0798860532C" },
     { pair: "SOL / USD", address: "0xD15862FC3D5407A03B696548b6902D6464A69b8c" },
   ],

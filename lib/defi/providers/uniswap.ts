@@ -1,12 +1,17 @@
 /**
- * lib/defi/providers/uniswap.ts — DeFi provider Uniswap V2 + V3 (dan Pancake V3 di BSC).
+ * lib/defi/providers/uniswap.ts — DeFi provider Uniswap V2 + V3 (dan Pancake V3 di BSC) untuk SEMUA 5 chain.
  *
+ * Chain support: base, bsc, ink, hyperevm, robinhood
  * - V2: reuse Blockscout token-balances (symbol UNI-V2 / LP) → enrich via DexScreener,
- *       filter dexId uniswap / sushiswap / pancakeswap / aerodrome.
+ *       filter dexId uniswap / sushiswap / pancakeswap / aerodrome (allow-list per chain).
+ *       BSC tidak punya Blockscout → V2 graceful [] (coverage BSC via DexScreener provider terpisah + V3 RPC).
+ *       Ink/HyperEVM/Robinhood via Blockscout V2 + DexScreener enrichment.
  * - V3: on-chain NFT positions via NonfungiblePositionManager (balanceOf + tokenOfOwnerByIndex + positions)
  *       dengan fallback graceful [] bila RPC gagal / bytecode tidak ada.
+ *       Ink: NPM 0xC36442b4... + factory universal 0x1F98... ; Base/BSC tetap; HyperEVM/Robinhood null → V3 skip.
+ *       dengan withFailover + getBytecode check.
  *
- * Cache: globalCache.swr fresh 20s stale 120s. Tidak ada API key. Tidak throw — selalu return [] on error.
+ * Cache: globalCache.swr fresh 20s stale 120s key defi:uniswap:${chain}:${address}. Tidak ada API key. Tidak throw — selalu return [] on error.
  * Pakai fetchWithTimeout 8s untuk HTTP, dan withFailover untuk viem RPC.
  */
 
@@ -21,16 +26,23 @@ import type { DefiDiscoveryProvider, DefiPosition } from "../types";
 // Uniswap V3 NonfungiblePositionManager — terverifikasi via explorer:
 // Base: 0x03a520b32C04BF74f7bEBeF36A9E46a68a389e08 (Uniswap docs)
 // BSC Pancake V3 Position Manager: 0x46A15B0b27311cedF172AB29E4f4766fbE7F4364
+// Ink: 0xC36442b4a4522E871399CD717aBDD847Ab11FE88 (Ink Kraken L2 Uniswap V3 NPM - Blockscout verified)
+// HyperEVM & Robinhood: belum ada Uniswap V3 resmi → null (graceful [] di discoverV3Positions)
 const UNISWAP_V3_NPM: Partial<Record<ChainKey, `0x${string}`>> = {
   base: "0x03a520b32C04BF74f7bEBeF36A9E46a68a389e08",
   bsc: "0x46A15B0b27311cedF172AB29E4f4766fbE7F4364",
-  // ink: belum ada deployment Uniswap resmi — biarkan null untuk MVP
+  ink: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
+  // hyperevm: null — HyperEVM belum ada Uniswap V3 resmi, V3 akan skip graceful
+  // robinhood: null — Robinhood Chain belum ada Uniswap V3, V3 akan skip graceful
 };
 
 // Factory untuk resolve pool address (best-effort, fallback ke v3:<tokenId>)
+// Ink menggunakan factory universal 0x1F98431c8aD98523631AE4a59f267346ea31F984 (sama di banyak L2)
+// HyperEVM & Robinhood belum ada deployment → null (graceful fallback ke v3:<tokenId> atau skip)
 const UNISWAP_V3_FACTORY: Partial<Record<ChainKey, `0x${string}`>> = {
   base: "0x33128a8fC17869897dcE68Ed026d694621f6FD97",
   bsc: "0x0BF500515197dC82B95533425c478F6D280772Eb",
+  ink: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
 };
 
 // Blockscout v2 bases — sama seperti lib/discovery; BSC tidak punya Blockscout publik,
@@ -157,11 +169,13 @@ interface DexScreenerResponse {
 
 const DEXSCREENER_BASE = "https://api.dexscreener.com";
 
-// dex allow-list per chain untuk provider uniswap
+// dex allow-list per chain untuk provider uniswap — support SEMUA 5 chain
 const ALLOWED_DEX: Record<string, Set<string>> = {
   base: new Set(["uniswap", "sushiswap", "aerodrome", "baseswap", "uniswapv3", "pancakeswap"]),
   bsc: new Set(["pancakeswap", "uniswap", "sushiswap", "biswap", "apeswap"]),
-  // ink / hyperevm / robinhood: tidak ada LP V2 signifikan, biarkan empty -> semua di-skip
+  ink: new Set(["uniswap", "uniswapv3", "sushiswap", "pancakeswap", "inkswap", "velodrome"]),
+  hyperevm: new Set(["uniswap", "uniswapv3", "sushiswap", "pancakeswap", "hybra", "hyperliquid", "kitten"]),
+  robinhood: new Set(["uniswap", "uniswapv3", "sushiswap", "pancakeswap"]),
 };
 
 async function discoverV2Uniswap(chain: ChainKey, address: string): Promise<DefiPosition[]> {
@@ -451,20 +465,20 @@ async function discoverV3Positions(chain: ChainKey, address: string): Promise<De
 export const uniswapDefiProvider: DefiDiscoveryProvider = {
   id: "uniswap",
   name: "Uniswap",
-  supportsChain: (c: ChainKey) => Boolean(UNISWAP_V3_NPM[c] || V2_BASES[c] && (c === "base" || c === "robinhood" || c === "ink" || c === "hyperevm")),
-  // Untuk MVP strict sesuai spec: hanya base & bsc yang benar-benar didukung penuh.
-  // Ink/hyperevm/robinhood hanya via V2 Blockscout bila ada — graceful [] bila tidak.
+  // Support SEMUA 5 chain: base, bsc, ink, hyperevm, robinhood
+  // Base: V2+V3 | BSC: V3 (V2 graceful []) | Ink: V2+V3 | HyperEVM: V2 (V3 null) | Robinhood: V2 (V3 null)
+  supportsChain: (c: ChainKey) =>
+    Boolean(UNISWAP_V3_NPM[c] || V2_BASES[c]) ||
+    (c === "base" || c === "bsc" || c === "ink" || c === "hyperevm" || c === "robinhood"),
   discoverPositions: async (chain: ChainKey, address: string): Promise<DefiPosition[]> => {
-    // MVP: hanya base & bsc yang dianggap "supported" untuk Uniswap/Pancake.
-    // Chain lain tetap dicoba V2 tapi akan return [] bila tidak ada Blockscout/dex.
-    const isSupported = chain === "base" || chain === "bsc";
-    // Tetap izinkan ink/robinhood/hyperevm untuk V2 fallback, tapi tidak diiklankan sebagai supported
-    // Untuk menjaga kontrak supportsChain sesuai spec "base & bsc", kita return [] untuk chain lain.
-    if (!isSupported) {
-      // cek apakah V2_BASES ada — untuk MVP kita tetap return [] supaya konsisten dengan spec
-      // (ink/hyperevm akan ditangani geckoterminal/dexscreener, bukan uniswap)
-      return [];
-    }
+    // Support SEMUA 5 chain — graceful fallback [] per sub-discovery jika tidak ada NPM/factory/V2_BASE
+    // V3: skip jika UNISWAP_V3_NPM[chain] null (hyperevm, robinhood) → discoverV3Positions return []
+    // V2: skip jika V2_BASES[chain] null (bsc) → discoverV2Uniswap return [] (DexScreener provider terpisah handle BSC)
+    const isKnownChain =
+      chain === "base" || chain === "bsc" || chain === "ink" || chain === "hyperevm" || chain === "robinhood";
+    const hasAny = Boolean(UNISWAP_V3_NPM[chain] || V2_BASES[chain]);
+    if (!isKnownChain && !hasAny) return [];
+    if (!isKnownChain) return [];
 
     const lower = address.toLowerCase();
     const cacheKey = `defi:uniswap:${chain}:${lower}`;

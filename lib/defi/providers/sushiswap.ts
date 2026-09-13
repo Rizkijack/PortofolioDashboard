@@ -1,10 +1,11 @@
 /**
- * lib/defi/providers/sushiswap.ts — DeFi provider SushiSwap V2 (SLP).
+ * lib/defi/providers/sushiswap.ts — DeFi provider SushiSwap V2 (SLP) untuk SEMUA 5 chain.
  *
+ * Chain support: base, bsc, ink, hyperevm, robinhood
  * - V2: reuse Blockscout token-balances (symbol SLP) → enrich via DexScreener,
  *       filter dexId === "sushiswap".
- * - Untuk BSC tidak ada Blockscout publik → graceful [] (sesuai spec MVP).
- * - Cache: globalCache.swr fresh 20s stale 120s. Tidak ada API key. Tidak throw.
+ *       Base/Ink/Robinhood/HyperEVM via Blockscout V2; BSC tidak ada Blockscout publik → graceful [] (DexScreener provider terpisah handle BSC SLP).
+ * - Cache: globalCache.swr fresh 20s stale 120s key defi:sushiswap:${chain}:${address}. Tidak ada API key. Tidak throw — selalu return [] on error.
  */
 
 import { BROWSER_UA, fetchWithTimeout, globalCache } from "../../cache";
@@ -12,7 +13,8 @@ import { CHAINS } from "../../chains";
 import type { ChainKey } from "../../types";
 import type { DefiDiscoveryProvider, DefiPosition } from "../types";
 
-// Blockscout v2 bases — Bsc tidak punya Blockscout publik, jadi sushiswap di BSC graceful [].
+// Blockscout v2 bases — BSC tidak punya Blockscout publik → graceful [] di discoverSushiswapForChain (coverage BSC via DexScreener provider terpisah)
+// Base/Ink/Robinhood/HyperEVM sudah punya Blockscout publik → V2 SLP akan jalan
 const V2_BASES: Partial<Record<ChainKey, string>> = {
   base: "https://base.blockscout.com",
   ink: "https://explorer.inkonchain.com",
@@ -189,12 +191,13 @@ async function discoverSushiswapForChain(
 export const sushiswapDefiProvider: DefiDiscoveryProvider = {
   id: "sushiswap",
   name: "SushiSwap",
-  // MVP: hanya base & bsc yang di-advertise sebagai supported.
-  // ink/robinhood/hyperevm punya Blockscout tapi tidak ada sushiswap deployment signifikan → return [] tetap.
-  supportsChain: (c: ChainKey) => c === "base" || c === "bsc",
+  // Support SEMUA 5 chain — BSC via graceful [] (V2_BASES null), ink/hyperevm/robinhood via Blockscout + DexScreener filter sushiswap
+  supportsChain: (c: ChainKey) =>
+    c === "base" || c === "bsc" || c === "ink" || c === "hyperevm" || c === "robinhood",
   discoverPositions: async (chain: ChainKey, address: string): Promise<DefiPosition[]> => {
-    // hanya base & bsc dianggap supported; chain lain graceful []
-    if (chain !== "base" && chain !== "bsc") return [];
+    const isKnownChain =
+      chain === "base" || chain === "bsc" || chain === "ink" || chain === "hyperevm" || chain === "robinhood";
+    if (!isKnownChain) return [];
     const lower = address.toLowerCase();
     const cacheKey = `defi:sushiswap:${chain}:${lower}`;
 

@@ -13,15 +13,35 @@ import { fetchWithTimeout, globalCache } from "../../cache";
 import type { ChainKey } from "../../types";
 import type { DefiDiscoveryProvider, DefiPosition } from "../types";
 
-// Birdeye hanya support subset chain untuk MVP: base & bsc.
-// hyperevm / ink / robinhood belum tersedia di Birdeye — graceful [].
-const BIRDEYE_CHAIN: Record<ChainKey, string | null> = {
+// Birdeye DeFi provider now supports all 5 chains.
+// Mapping: base="base", bsc="bsc" (fallback "bnb"), ink="ink", hyperevm="hyperliquid" (fallback "hyperevm"), robinhood="robinhood".
+// Graceful fallback [] if Birdeye hasn't yet listed the chain (404/401).
+export const BIRDEYE_CHAIN: Record<ChainKey, string | null> = {
   base: "base",
   bsc: "bsc",
-  hyperevm: null,
-  ink: null,
-  robinhood: null,
+  ink: "ink",
+  hyperevm: "hyperliquid",
+  robinhood: "robinhood",
 };
+
+/**
+ * Return Birdeye chain slugs to try for a given ChainKey.
+ * - base       -> ["base"]
+ * - bsc        -> ["bsc","bnb"]  (Birdeye historically uses "bsc" or "bnb")
+ * - ink        -> ["ink"]
+ * - hyperevm   -> ["hyperliquid","hyperevm"] (HyperEVM 999 — Birdeye may list as "hyperliquid")
+ * - robinhood  -> ["robinhood"]
+ * Fallback order matters: first slug tried first, second only if first yields 404/empty.
+ */
+export function birdeyeChainsFor(chain: ChainKey): string[] {
+  if (chain === "hyperevm") return ["hyperliquid", "hyperevm"];
+  if (chain === "bsc") return ["bsc", "bnb"];
+  const primary = BIRDEYE_CHAIN[chain];
+  return primary ? [primary] : [];
+}
+
+// alias for spec example compatibility
+export const chainSlugs = birdeyeChainsFor;
 
 function getBirdeyeKey(): string | null {
   const k =
@@ -229,24 +249,31 @@ function collectItems(json: unknown): BirdeyeRawItem[] {
   return out;
 }
 
-async function fetchBirdeyeForChain(
+/**
+ * Low-level fetch for a single Birdeye slug.
+ * Returns status meta to distinguish 404/401 (not supported) vs 200 empty (supported but no LP).
+ */
+async function fetchBirdeyeForChainWithStatus(
   birdeyeChain: string,
   address: string,
   apiKey: string
-): Promise<BirdeyeRawItem[]> {
+): Promise<{ items: BirdeyeRawItem[]; hadOk: boolean }> {
   const headers: Record<string, string> = {
     accept: "application/json",
     "X-API-KEY": apiKey,
     "x-chain": birdeyeChain,
   };
 
-  // Urutan endpoint coba: primary list, lalu token_list, lalu portfolio/portfolio
+  // Urutan endpoint coba: primary list, lalu token_list (dengan query chain=), lalu portfolio variants
+  // Header X-API-KEY always, x-chain + query chain= for compatibility.
   const urls = [
     `https://public-api.birdeye.so/v1/wallet/list?wallet=${address}`,
     `https://public-api.birdeye.so/v1/wallet/token_list?wallet=${address}&chain=${birdeyeChain}`,
     `https://public-api.birdeye.so/defi/v2/wallet/portfolio?wallet=${address}`,
     `https://public-api.birdeye.so/defi/v3/wallet/portfolio?wallet=${address}`,
   ];
+
+  let hadOk = false;
 
   for (const url of urls) {
     try {
@@ -258,12 +285,13 @@ async function fetchBirdeyeForChain(
         cache: "no-store",
       });
       if (!res.ok) {
-        // 401/404/429 -> coba endpoint berikutnya, jangan throw
+        // 401/404/429 -> coba endpoint berikutnya, jangan throw (graceful)
         continue;
       }
+      hadOk = true;
       const json = (await res.json()) as unknown;
       const items = collectItems(json);
-      if (items.length) return items;
+      if (items.length) return { items, hadOk: true };
       // Jika endpoint mengembalikan sukses tapi tidak ada items, coba endpoint berikutnya
       // (beberapa chain mungkin kosong di endpoint pertama tapi ada di yang lain)
     } catch {
@@ -271,7 +299,17 @@ async function fetchBirdeyeForChain(
       continue;
     }
   }
-  return [];
+  return { items: [], hadOk };
+}
+
+// kept for backward compat; wrapper around WithStatus (exported so lint doesn't flag unused)
+export async function fetchBirdeyeForChain(
+  birdeyeChain: string,
+  address: string,
+  apiKey: string
+): Promise<BirdeyeRawItem[]> {
+  const { items } = await fetchBirdeyeForChainWithStatus(birdeyeChain, address, apiKey);
+  return items;
 }
 
 export const birdeyeDefiProvider: DefiDiscoveryProvider = {
@@ -279,8 +317,8 @@ export const birdeyeDefiProvider: DefiDiscoveryProvider = {
   name: "Birdeye",
   supportsChain: (c: ChainKey) => Boolean(BIRDEYE_CHAIN[c]),
   discoverPositions: async (chain: ChainKey, address: string): Promise<DefiPosition[]> => {
-    const birdeyeChain = BIRDEYE_CHAIN[chain];
-    if (!birdeyeChain) return [];
+    const slugs = birdeyeChainsFor(chain);
+    if (!slugs.length) return [];
 
     const apiKey = getBirdeyeKey();
     if (!apiKey) return [];
@@ -293,7 +331,24 @@ export const birdeyeDefiProvider: DefiDiscoveryProvider = {
         cacheKey,
         async () => {
           try {
-            const rawItems = await fetchBirdeyeForChain(birdeyeChain, lower, apiKey);
+            let rawItems: BirdeyeRawItem[] = [];
+            // Loop setiap chainSlug sampai salah satu sukses (tidak 404/401) atau semua gagal.
+            // hadOk = true means Birdeye recognizes the slug (HTTP 200 at least one endpoint).
+            // If we get items, we use them; if hadOk but empty, we still break (graceful empty).
+            for (const slug of slugs) {
+              const { items, hadOk } = await fetchBirdeyeForChainWithStatus(slug, lower, apiKey);
+              if (items.length) {
+                rawItems = items;
+                break;
+              }
+              if (hadOk) {
+                // Slug supported, endpoint returned 200 but no items — treat as final empty, don't fallback to next alias.
+                rawItems = [];
+                break;
+              }
+              // hadOk false => 404/401 for this slug, try next alias (e.g. hyperliquid -> hyperevm, bsc -> bnb)
+            }
+
             if (!rawItems.length) return [];
 
             // Filter LP-like saja
