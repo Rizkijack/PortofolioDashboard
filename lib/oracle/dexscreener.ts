@@ -54,14 +54,11 @@ export async function fetchPairs(
 
         for (const pair of value.pairs ?? []) {
           if (pair.chainId !== slug) continue;
-          // Validasi: ambil harga hanya jika token yang dicari adalah baseToken ATAU quoteToken
-          // Dexscreener priceUsd adalah harga dari baseToken.
+          // Validasi: ambil harga hanya jika token yang dicari adalah baseToken (priceUsd adalah harga baseToken)
           const baseAddr = pair.baseToken.address.toLowerCase();
-          const quoteAddr = pair.quoteToken.address.toLowerCase();
           const liq = pair.liquidity?.usd ?? 0;
-
-          // Jika baseToken cocok langsung:
-          if (chunk.map(c => c.toLowerCase()).includes(baseAddr)) {
+          const lowerChunk = chunk.map((c) => c.toLowerCase());
+          if (lowerChunk.includes(baseAddr)) {
             const prev = out.get(baseAddr);
             if (!prev || liq > (prev.liquidity?.usd ?? 0)) out.set(baseAddr, pair);
           }

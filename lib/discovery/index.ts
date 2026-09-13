@@ -16,7 +16,7 @@ const V2_BASES: Partial<Record<ChainKey, string>> = {
   base: "https://base.blockscout.com",
   ink: "https://explorer.inkonchain.com",
   robinhood: "https://robinhoodchain.blockscout.com",
-  hyperevm: "https://hyperevmscan.io",
+  // HypereVM: hyperevmscan.io tidak expose Blockscout v2 (return HTML) — tidak ada fallback Blockscout, hanya native via RPC + DexScreener pricing
 };
 
 const UA =
@@ -70,8 +70,18 @@ async function discoverViaBlockscout(
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`blockscout(${chain}) ${res.status}`);
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("text/html")) {
+    const txt = await res.text();
+    throw new Error(`blockscout(${chain}) html ${txt.slice(0, 80)}`);
+  }
 
-  const rows = (await res.json()) as V2TokenBalance[];
+  let rows: V2TokenBalance[];
+  try {
+    rows = (await res.json()) as V2TokenBalance[];
+  } catch (e) {
+    throw new Error(`blockscout(${chain}) json ${e instanceof Error ? e.message.slice(0, 80) : String(e)}`);
+  }
   if (!Array.isArray(rows)) return [];
 
   const out: DiscoveredToken[] = [];
@@ -197,8 +207,11 @@ export async function discoverTokens(
         );
 
         const tokenMap = new Map<string, DiscoveredToken>();
+        const rejected: string[] = [];
 
-        for (const res of results) {
+        for (let i = 0; i < results.length; i++) {
+          const res = results[i];
+          const prov = eligibleProviders[i];
           if (res.status === "fulfilled" && Array.isArray(res.value)) {
             for (const t of res.value) {
               const existing = tokenMap.get(t.address);
@@ -217,8 +230,16 @@ export async function discoverTokens(
                 }
               }
             }
+          } else if (res.status === "rejected") {
+            rejected.push(`${prov.id}: ${res.reason instanceof Error ? res.reason.message.slice(0, 80) : String(res.reason).slice(0, 80)}`);
           }
         }
+
+        // Jika semua provider eligible gagal, throw supaya portfolio bisa tampilkan warning partial (jujur)
+        if (tokenMap.size === 0 && rejected.length > 0 && rejected.length === eligibleProviders.length) {
+          throw new Error(rejected.join(" | "));
+        }
+        // Jika sebagian gagal tapi ada data, tetap return data (jangan throw), tapi log rejected untuk debug cache tidak perlu
 
         return Array.from(tokenMap.values());
       },

@@ -37,7 +37,7 @@ const V2_BASES: Partial<Record<ChainKey, string>> = {
   base: "https://base.blockscout.com",
   ink: "https://explorer.inkonchain.com",
   robinhood: "https://robinhoodchain.blockscout.com",
-  hyperevm: "https://hyperevmscan.io",
+  // hyperevm: hyperevmscan.io tidak expose Blockscout v2 (HTML) — tx history hanya via native, tidak ada explorer v2
 };
 
 const UA =
@@ -246,8 +246,18 @@ async function fetchBlockscoutPage(
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`blockscout(${chain}) ${res.status}`);
+  const ctTx = res.headers.get("content-type") || "";
+  if (ctTx.includes("text/html")) {
+    const txt = await res.text();
+    throw new Error(`blockscout(${chain}) html ${txt.slice(0, 80)}`);
+  }
 
-  const json = (await res.json()) as unknown;
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error(`blockscout(${chain}) json ${e instanceof Error ? e.message.slice(0, 80) : String(e)}`);
+  }
   // Some deployments return array directly; normal returns { items, next_page_params }
   let items: unknown[] = [];
   let next: Record<string, string> | null = null;

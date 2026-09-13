@@ -136,9 +136,15 @@ export async function fetchChainPortfolio(
 
   const [native, discovered] = await Promise.all([
     readNative(chain, owner),
-    discoverTokens(chain, owner),
+    discoverTokens(chain, owner).catch((e) => {
+      warnings.push(`discovery: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}`);
+      return [] as DiscoveredToken[];
+    }),
   ]);
   if (native.error) warnings.push(`native: ${native.error}`);
+  // Jika discovery kosong tapi RPC native ada, beri info jujur ketika provider gagal total (mis. Blockscout 500/HTML)
+  // Portfolio tetap tampil native, tapi partial true supaya user tahu explorer sempat error
+  // (discoverTokens yang swr sudah handle Promise.allSettled, jadi jika semua provider fulfilled [] tidak perlu warning)
 
   const { balances, unread } = await readErc20Balances(chain, owner, discovered);
   if (unread.length > 0) {
