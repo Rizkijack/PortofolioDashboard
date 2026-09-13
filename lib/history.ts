@@ -129,7 +129,7 @@ async function fetchCoingeckoMarketChart(
       async () => {
         const res = await fetchWithTimeout(
           `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`,
-          { timeoutMs: 8000, headers: { accept: "application/json" } }
+          { timeoutMs: 3500, headers: { accept: "application/json" } }
         );
         if (!res.ok) throw new Error(`cg ${res.status}`);
         const json = (await res.json()) as { prices?: number[][] };
@@ -137,7 +137,7 @@ async function fetchCoingeckoMarketChart(
         if (!Array.isArray(prices) || prices.length === 0) throw new Error("cg empty");
         return prices;
       },
-      { freshMs: 60_000, staleMs: 300_000 }
+      { freshMs: 120_000, staleMs: 600_000 }
     );
     if (!value || !Array.isArray(value) || value.length === 0) return null;
     return value;
@@ -161,7 +161,7 @@ async function fetchLlamaChart(
       async () => {
         const url = `https://coins.llama.fi/chart/${slug}:${addr}`;
         const res = await fetchWithTimeout(url, {
-          timeoutMs: 8000,
+          timeoutMs: 3500,
           headers: { accept: "application/json" },
         });
         if (!res.ok) throw new Error(`llama ${res.status}`);
@@ -184,16 +184,11 @@ async function fetchLlamaChart(
               // [timestampSec, price]
               return (prices as number[][]).map((r) => [r[0] * 1000, r[1]]);
             }
-            if (typeof first === "object" && Array.isArray((first as { timestamp?: unknown }).timestamp)) {
-              // fallback
-              return null;
-            }
           }
         }
-        // alternate shape: { chart: [[ts, price]] } unlikely
         return null;
       },
-      { freshMs: 60_000, staleMs: 300_000 }
+      { freshMs: 120_000, staleMs: 600_000 }
     );
     if (!value || !Array.isArray(value) || value.length === 0) return null;
     return value;
@@ -243,19 +238,22 @@ async function buildHistory(address: string, range: HistoryRange): Promise<Histo
 
   let portfolio: Awaited<ReturnType<typeof fetchPortfolio>> | null = null;
   try {
-    portfolio = await fetchPortfolio(address, [...CHAIN_ORDER], {});
+    // Beri batas waktu maksimal 12s untuk portfolio scan di history agar tidak timeout gateway
+    portfolio = await Promise.race([
+      fetchPortfolio(address, [...CHAIN_ORDER], { includeZero: false }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("portfolio timeout for history")), 12_000)
+      ),
+    ]);
   } catch {
-    // graceful fallback: 2 flat points as spec
+    // graceful fallback: flat points as spec
     const now = Date.now();
     return {
-      points: [
-        { t: now - 24 * 60 * 60 * 1000, value: 0 },
-        { t: now, value: 0 },
-      ],
+      points: targets.map((t) => ({ t, value: 0 })),
       range,
       fetchedAt,
       limited: true,
-      currentValue: null,
+      currentValue: 0,
     };
   }
 
@@ -277,14 +275,13 @@ async function buildHistory(address: string, range: HistoryRange): Promise<Histo
   if (candidates.length === 0) {
     // no priced holdings -> flat 0 or flat currentTotal (0)
     const points = targets.map((t) => ({ t, value: currentTotal ?? 0 }));
-    // ensure at least 2 points (already daily)
     return { points, range, fetchedAt, limited: true, currentValue: currentTotal ?? 0 };
   }
 
-  // avoid hammering: cap to top 20 by valueUsd to stay within rate limits
+  // avoid hammering: cap to top 10 by valueUsd to stay fast & within rate limits
   candidates.sort((a, b) => (b.token.valueUsd ?? 0) - (a.token.valueUsd ?? 0));
-  const pricedTokens = candidates.slice(0, 20);
-  const rest = candidates.slice(20);
+  const pricedTokens = candidates.slice(0, 10);
+  const rest = candidates.slice(10);
   // rest will be flat current price (stable assumption)
 
   const pricesByKey = new Map<string, (number | null)[]>();

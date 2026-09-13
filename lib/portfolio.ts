@@ -34,10 +34,13 @@ const ERC20_ABI = parseAbi([
   "function symbol() view returns (string)",
 ]);
 
-const ERC20_BATCH = 40;
+const ERC20_BATCH = 100;
 
 /** Batas multicall paralel — sekuensial murni terlalu lambat untuk whale (1000+ token). */
-const ERC20_CONCURRENCY = 5;
+const ERC20_CONCURRENCY = 10;
+
+/** Batas maksimal token yang di-multicall per chain agar tidak hang pada wallet dengan ribuan spam token */
+const MAX_DISCOVERED_MULTICALL = 500;
 
 async function readNative(chain: ChainKey, owner: string): Promise<{ raw: string; error?: string }> {
   try {

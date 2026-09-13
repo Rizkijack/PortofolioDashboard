@@ -9,6 +9,7 @@
  */
 
 import { CHAINS, chainByKey, parseChainKeys } from "./chains";
+import { NATIVE_ADDRESS } from "./types";
 import type { ChainKey, PriceQuote } from "./types";
 import { resolveQuotes, fillFromDexScreener, streamStatus, waitForTicks } from "./oracle";
 import { fetchRedstoneApi } from "./oracle/redstone";
@@ -55,6 +56,11 @@ export interface PriceRequestItem {
   isNative?: boolean;
 }
 
+function isNativeAddress(addr: string): boolean {
+  const l = addr.toLowerCase();
+  return l === NATIVE_ADDRESS.toLowerCase() || l === "0x0000000000000000000000000000000000000000";
+}
+
 export function parsePriceIds(ids: string): PriceRequestItem[] {
   const out: PriceRequestItem[] = [];
   for (const raw of ids.split(",")) {
@@ -64,9 +70,16 @@ export function parsePriceIds(ids: string): PriceRequestItem[] {
     if (idx <= 0) continue;
     const chain = item.slice(0, idx).trim().toLowerCase();
     const address = item.slice(idx + 1).trim();
-    if (!chainByKey(chain)) continue;
+    const chainMeta = chainByKey(chain);
+    if (!chainMeta) continue;
     if (!/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
-    out.push({ chain: chain as ChainKey, address, symbol: "" });
+    const isNative = isNativeAddress(address);
+    out.push({
+      chain: chain as ChainKey,
+      address,
+      symbol: isNative ? chainMeta.nativeSymbol : "",
+      isNative,
+    });
   }
   return out;
 }

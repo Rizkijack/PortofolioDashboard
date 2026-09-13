@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchQuotesFor, parsePriceIds, fetchSlugQuotes, isCanonicalId } from "@/lib/prices";
-import { resolveQuotes } from "@/lib/oracle";
+import { resolveQuotes, fillFromDexScreener } from "@/lib/oracle";
 import { discoverTokens } from "@/lib/discovery";
+import { NATIVE_ADDRESS } from "@/lib/types";
 import type { ChainKey } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const MAX_IDS = 60;
+
+function isNativeAddress(addr: string): boolean {
+  const l = addr.toLowerCase();
+  return l === NATIVE_ADDRESS.toLowerCase() || l === "0x0000000000000000000000000000000000000000";
+}
 
 /**
  * GET /api/prices?ids=ethereum,bitcoin            → slug CoinGecko (ticker UI)
@@ -31,10 +37,14 @@ export async function GET(req: NextRequest) {
       })
       .filter((r) => r.chain && /^0x[a-fA-F0-9]{40}$/.test(r.address ?? ""));
 
-    const grouped = new Map<string, Array<{ address: string; symbol: string }>>();
+    const grouped = new Map<string, Array<{ address: string; symbol: string; isNative?: boolean }>>();
     for (const it of rows) {
       const list = grouped.get(it.chain) ?? [];
-      list.push({ address: it.address, symbol: it.symbol ?? "" });
+      list.push({
+        address: it.address,
+        symbol: it.symbol ?? "",
+        isNative: isNativeAddress(it.address),
+      });
       grouped.set(it.chain, list);
     }
 
@@ -43,6 +53,11 @@ export async function GET(req: NextRequest) {
     await Promise.all(
       [...grouped.entries()].map(async ([chain, list]) => {
         const resolved = await resolveQuotes(chain as ChainKey, list);
+        await fillFromDexScreener(
+          chain as ChainKey,
+          list.map((i) => ({ address: i.address, symbol: i.symbol })),
+          resolved
+        );
         for (const it of list) {
           const key = `${chain}:${it.address.toLowerCase()}`;
           const q = resolved.get(it.address.toLowerCase());
