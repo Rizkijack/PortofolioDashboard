@@ -90,6 +90,7 @@ export const CHAINS: Record<ChainKey, ChainMeta> = {
     dexscreenerSlug: "robinhood",
     explorer: "https://robinhoodchain.blockscout.com",
     color: "#00C805",
+    // Robinhood L2 finality ~100 detik — blockTime mencerminkan periode blok ~101s
     blockTimeMs: 101_000,
   },
   base: {
@@ -146,11 +147,13 @@ export const CHAINS: Record<ChainKey, ChainMeta> = {
   },
 };
 
-/** Failover RPC — hanya yang terverifikasi hidup. */
+/** Failover RPC — hanya yang terverifikasi hidup (probe POST eth_chainId, catatan hasil di baris masing-masing). */
 export const RPC_FAILOVER: Record<ChainKey, string[]> = {
   robinhood: ["https://robinhood-rpc.publicnode.com", "https://robinhood.drpc.org"],
-  base: ["https://mainnet.base.org"],
-  bsc: ["https://bsc-dataseed.binance.org"],
+  // 1rpc.io/base & base.drpc.org: hidup, chainId 0x2105 (probe 2026-09-14); kandidat lain base sudah cukup 2
+  base: ["https://mainnet.base.org", "https://1rpc.io/base", "https://base.drpc.org"],
+  // bsc.publicnode.com: hidup, chainId 0x38 (probe 2026-09-14); bsc.drpc.org kena rate limit → tidak ditambahkan
+  bsc: ["https://bsc-dataseed.binance.org", "https://bsc.publicnode.com"],
   hyperevm: ["https://rpc.hyperliquid.xyz/evm", "https://hyperliquid.drpc.org"],
   ink: ["https://rpc-gel.inkonchain.com", "https://rpc-qnd.inkonchain.com", "https://ink.drpc.org"],
 };

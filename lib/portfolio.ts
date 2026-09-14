@@ -39,8 +39,8 @@ const ERC20_BATCH = 100;
 /** Batas multicall paralel — sekuensial murni terlalu lambat untuk whale (1000+ token). */
 const ERC20_CONCURRENCY = 10;
 
-/** Batas maksimal token yang di-multicall per chain agar tidak hang pada wallet dengan ribuan spam token */
-const MAX_DISCOVERED_MULTICALL = 500;
+/** Skala harga 1e8 (8 desimal) — dipakai perkalian BigInt agar presisi raw > 2^53 tetap utuh. */
+const PRICE_SCALE = 1e8;
 
 async function readNative(chain: ChainKey, owner: string): Promise<{ raw: string; error?: string }> {
   try {
@@ -249,7 +249,13 @@ export async function fetchChainPortfolio(
     if (!q) q = noneQuote();
 
     const balance = rawToDecimalString(c.raw.toString(), c.decimals);
-    const valueUsd = q.usd === null ? null : Number(balance) * q.usd;
+    // Presisi: hitung dari raw via BigInt (skala harga 1e8) — hindari double-rounding Number(bal)*price
+    let valueUsd: number | null = null;
+    if (q.usd !== null && Number.isFinite(q.usd)) {
+      const priceScaled = BigInt(Math.round(q.usd * PRICE_SCALE));
+      const valueScaled = (c.raw * priceScaled) / 10n ** BigInt(c.decimals);
+      valueUsd = Number(valueScaled) / PRICE_SCALE;
+    }
 
     return {
       chain,

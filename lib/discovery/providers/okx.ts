@@ -30,7 +30,8 @@ export const okxProvider: TokenDiscoveryProvider = {
   name: "OKX Web3 API",
   supportsChain: (chain: ChainKey) => Boolean(OKX_CHAIN_IDS[chain]),
   discoverTokens: async (chain: ChainKey, userAddress: string): Promise<DiscoveredToken[]> => {
-    const apiKey = process.env.OKX_API_KEY || process.env.NEXT_PUBLIC_OKX_API_KEY;
+    // Hanya key server-only — NEXT_PUBLIC_* tidak dipakai karena ter-bundle ke client JS.
+    const apiKey = process.env.OKX_API_KEY;
     const secretKey = process.env.OKX_SECRET_KEY;
     const passphrase = process.env.OKX_PASSPHRASE;
     const chainId = OKX_CHAIN_IDS[chain];

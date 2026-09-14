@@ -94,7 +94,10 @@ export async function fetchWithTimeout(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    return await fetch(input, { ...rest, signal: ctrl.signal });
+    // Gabungkan signal caller (bila ada) dengan signal timeout internal —
+    // jangan menimpa, supaya AbortController milik pemanggil tetap bisa abort.
+    const signal = rest.signal ? AbortSignal.any([ctrl.signal, rest.signal]) : ctrl.signal;
+    return await fetch(input, { ...rest, signal });
   } finally {
     clearTimeout(timer);
   }

@@ -5,7 +5,7 @@
  * Endpoint primer: GET https://public-api.birdeye.so/v1/wallet/list?wallet={address}
  * dengan header X-API-KEY + x-chain. Fallback ke portfolio endpoint jika 404/401.
  * Cache: globalCache.swr fresh 30s stale 120s per address.
- * Tidak ada hardcode secret; key diambil dari BIRDEYE_API_KEY atau NEXT_PUBLIC_BIRDEYE_API_KEY.
+ * Tidak ada hardcode secret; key diambil dari BIRDEYE_API_KEY (server-only).
  * Graceful fallback [] jika tidak ada key, chain tidak support, atau API error.
  */
 
@@ -44,10 +44,8 @@ export function birdeyeChainsFor(chain: ChainKey): string[] {
 export const chainSlugs = birdeyeChainsFor;
 
 function getBirdeyeKey(): string | null {
-  const k =
-    (process.env.BIRDEYE_API_KEY?.trim() ||
-      process.env.NEXT_PUBLIC_BIRDEYE_API_KEY?.trim() ||
-      "") as string;
+  // Hanya key server-only — NEXT_PUBLIC_* tidak dipakai karena ter-bundle ke client JS.
+  const k = (process.env.BIRDEYE_API_KEY?.trim() || "") as string;
   return k.length ? k : null;
 }
 

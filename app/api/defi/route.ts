@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAddress, parseChainKeys } from "@/lib/chains";
 import { discoverAllDefi } from "@/lib/defi";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  const rl = rateLimit(req);
+  if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   const sp = req.nextUrl.searchParams;
   const address = sp.get("address");
 

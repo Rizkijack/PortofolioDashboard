@@ -1,14 +1,18 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { CHAINS, CHAIN_ORDER, RPC_FAILOVER } from "@/lib/chains";
 import { probeRpc } from "@/lib/rpc";
 import { streamStatus } from "@/lib/oracle";
+import { rateLimit } from "@/lib/rate-limit";
 import type { ChainsResponse } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /** GET /api/chains — metadata + kesehatan RPC + status stream. */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const rl = rateLimit(req);
+  if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   const chains = await Promise.all(
     CHAIN_ORDER.map(async (key) => {
       const urls = RPC_FAILOVER[key];

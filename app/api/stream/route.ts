@@ -1,7 +1,8 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { isAddress, parseChainKeys } from "@/lib/chains";
 import { fetchChainPortfolio } from "@/lib/portfolio";
 import { resolveQuotes, ensureStream } from "@/lib/oracle";
+import { rateLimit } from "@/lib/rate-limit";
 import type { ChainKey } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,9 @@ export const runtime = "nodejs";
  *   error     — kegagalan non-fatal per chain
  */
 export async function GET(req: NextRequest) {
+  const rl = rateLimit(req);
+  if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   const sp = req.nextUrl.searchParams;
   const address = sp.get("address");
   if (!isAddress(address)) {
@@ -124,14 +128,24 @@ export async function GET(req: NextRequest) {
         }
       };
 
+      // Tick berikutnya baru dijadwalkan SETELAH tick selesai (await) —
+      // mencegah overlap bila resolveQuotes lebih lambat dari interval.
+      let tickTimer: ReturnType<typeof setTimeout> | undefined;
+      const scheduleTick = () => {
+        tickTimer = setTimeout(async () => {
+          await tick();
+          if (!closed) scheduleTick();
+        }, interval);
+      };
+
       await tick();
-      const tickTimer = setInterval(tick, interval);
+      scheduleTick();
       const hbTimer = setInterval(() => send("heartbeat", { t: Date.now() }), 15_000);
 
       const cleanup = () => {
         if (closed) return;
         closed = true;
-        clearInterval(tickTimer);
+        if (tickTimer) clearTimeout(tickTimer);
         clearInterval(hbTimer);
         try {
           controller.close();

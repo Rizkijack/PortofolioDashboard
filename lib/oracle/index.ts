@@ -98,7 +98,9 @@ export async function resolveQuotes(
       }
 
       // Tier 2b — RedStone API
-      if (!best || best.usd === null) {
+      // `best.stale` ikut dicek: Chainlink basi (mis. heartbeat 40 jam) tidak boleh
+      // menggagalkan redstone-api yang fresh.
+      if (!best || best.usd === null || best.stale) {
         const api = redstoneApi.get(sym);
         if (api) {
           const fetchedAt = Date.now();

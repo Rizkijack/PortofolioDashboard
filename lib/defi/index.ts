@@ -5,7 +5,7 @@
  * - discoverDefiPositions(chain, address): fan-out semua provider yang supportsChain
  * - discoverAllDefi(address, chains): loop per chain, flatten, dedup global, grouping, warnings
  *
- * Tidak throw — selalu kembalikan [] + warnings. Dedup by `${protocol}:${poolAddress}` lower.
+ * Tidak throw — selalu kembalikan [] + warnings. Dedup by `${chain}:${protocol}:${poolAddress}` lower.
  * Sort by reserveUsd desc (null paling bawah).
  */
 
@@ -41,7 +41,8 @@ function dedupPositions(positions: DefiPosition[]): DefiPosition[] {
   const out: DefiPosition[] = [];
   for (const p of positions) {
     if (!p.poolAddress) continue;
-    const key = `${p.protocol.toLowerCase()}:${p.poolAddress.toLowerCase()}`;
+    // Chain ikut dalam key: pool address sama di chain berbeda adalah posisi berbeda.
+    const key = `${p.chain}:${p.protocol.toLowerCase()}:${p.poolAddress.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(p);
@@ -136,9 +137,8 @@ export async function discoverAllDefi(
   // Untuk transparansi, kita coba kumpulkan provider-level warnings tanpa memanggil ulang fetcher (cukup skip MVP).
 
   // global dedup (jika ada pool yang muncul di multi provider dengan protocol sama akan sudah dedup per chain,
-  // tapi jika pool sama terdeteksi di chain berbeda dengan protocol sama (mis base vs bsc pool address kebetulan sama),
-  // kita tetap dedup global by protocol:poolAddress (chain diabaikan) — tetap aman karena address collision lintas chain jarang;
-  // tapi spec minta dedup by `${protocol}:${poolAddress}` lower global, jadi kita ikuti.
+  // dan dedup global pun menyertakan chain dalam key — pool address sama di chain berbeda adalah
+  // posisi berbeda, jangan sampai ter-drop karena address collision lintas chain).
   const globalDeduped = dedupPositions(flattened);
   globalDeduped.sort(sortByReserveDesc);
 

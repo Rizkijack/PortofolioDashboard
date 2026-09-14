@@ -18,6 +18,20 @@ export interface FilterState {
 
 export const DEFAULT_DUST_THRESHOLD = 1;
 
+/** Cek search case-insensitive: symbol / name / address (dipakai pipeline filter & counts). */
+function matchesSearch(p: PortfolioPosition, q: string): boolean {
+  return (
+    p.token.symbol.toLowerCase().includes(q) ||
+    p.token.name.toLowerCase().includes(q) ||
+    p.token.address.toLowerCase().includes(q)
+  );
+}
+
+/** Token dianggap dust bila berharga dan valueUsd < threshold (unpriced ditangani tahap hideUnpriced). */
+function isDust(p: PortfolioPosition, threshold: number): boolean {
+  return p.valueUsd !== null && p.valueUsd !== undefined && p.valueUsd < threshold;
+}
+
 const DEFAULT_FILTER: FilterState = {
   search: "",
   hideDust: false,
@@ -46,20 +60,12 @@ export function filterAndSortPositions(
   let out = positions.slice();
 
   if (q) {
-    out = out.filter((p) => {
-      return (
-        p.token.symbol.toLowerCase().includes(q) ||
-        p.token.name.toLowerCase().includes(q) ||
-        p.token.address.toLowerCase().includes(q)
-      );
-    });
+    out = out.filter((p) => matchesSearch(p, q));
   }
 
   if (merged.hideDust) {
-    out = out.filter((p) => {
-      if (p.valueUsd === null || p.valueUsd === undefined) return true; // biarkan hideUnpriced yang handle
-      return p.valueUsd >= threshold;
-    });
+    // valueUsd null/undefined di sini TIDAK dibuang — biarkan hideUnpriced yang handle
+    out = out.filter((p) => !isDust(p, threshold));
   }
 
   if (merged.hideSuspicious) {
@@ -96,6 +102,14 @@ export function filterAndSortPositions(
 
 /**
  * Hitung berapa yang ke-filter per kategori (untuk badge/counts di FilterBar).
+ *
+ * Dihitung CUMULATIVE mengikuti urutan pipeline filterAndSortPositions
+ * (search → hideDust → hideSuspicious → hideUnpriced): token yang sudah
+ * tersaring di tahap sebelumnya tidak dihitung ulang di tahap berikutnya,
+ * sehingga jumlah badge tidak pernah melebihi total tersembunyi.
+ * Kategori dengan toggle OFF selalu 0 — angka berarti "berapa yang akan
+ * disembunyikan filter aktif". Contoh: token dust+suspicious dengan kedua
+ * toggle on → hiddenDust=1, hiddenSuspicious=0 (sudah terbuang di tahap dust).
  */
 export function getFilterCounts(
   positions: PortfolioPosition[],
@@ -103,13 +117,28 @@ export function getFilterCounts(
 ): { hiddenDust: number; hiddenSuspicious: number; hiddenUnpriced: number } {
   const merged: FilterState = { ...DEFAULT_FILTER, ...f };
   const threshold = merged.dustThreshold ?? DEFAULT_DUST_THRESHOLD;
+  const q = merged.search.trim().toLowerCase();
+
+  // Tahap search selalu jalan di pipeline — menyempitkan kandidat badge.
+  let rest = positions.slice();
+  if (q) {
+    rest = rest.filter((p) => matchesSearch(p, q));
+  }
+
   let hiddenDust = 0;
   let hiddenSuspicious = 0;
   let hiddenUnpriced = 0;
-  for (const p of positions) {
-    if (p.valueUsd !== null && p.valueUsd !== undefined && p.valueUsd < threshold) hiddenDust += 1;
-    if (p.suspicious) hiddenSuspicious += 1;
-    if (p.valueUsd === null || p.valueUsd === undefined) hiddenUnpriced += 1;
+
+  if (merged.hideDust) {
+    hiddenDust = rest.filter((p) => isDust(p, threshold)).length;
+    rest = rest.filter((p) => !isDust(p, threshold));
+  }
+  if (merged.hideSuspicious) {
+    hiddenSuspicious = rest.filter((p) => p.suspicious).length;
+    rest = rest.filter((p) => !p.suspicious);
+  }
+  if (merged.hideUnpriced) {
+    hiddenUnpriced = rest.filter((p) => p.valueUsd === null || p.valueUsd === undefined).length;
   }
   return { hiddenDust, hiddenSuspicious, hiddenUnpriced };
 }

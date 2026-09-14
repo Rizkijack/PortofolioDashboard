@@ -196,59 +196,57 @@ export async function discoverTokens(
   address: string
 ): Promise<DiscoveredToken[]> {
   const key = `discovery:${chain}:${address.toLowerCase()}`;
-  try {
-    const { value } = await globalCache.swr(
-      key,
-      async () => {
-        const eligibleProviders = ALL_PROVIDERS.filter((p) => p.supportsChain(chain));
-        
-        const results = await Promise.allSettled(
-          eligibleProviders.map((p) => p.discoverTokens(chain, address))
-        );
+  // Throw dari fetcher (mis. "semua provider gagal") sengaja dibiarkan propagate —
+  // pemanggil (lib/portfolio.ts) punya .catch sendiri untuk menandai warning partial.
+  const { value } = await globalCache.swr(
+    key,
+    async () => {
+      const eligibleProviders = ALL_PROVIDERS.filter((p) => p.supportsChain(chain));
 
-        const tokenMap = new Map<string, DiscoveredToken>();
-        const rejected: string[] = [];
+      const results = await Promise.allSettled(
+        eligibleProviders.map((p) => p.discoverTokens(chain, address))
+      );
 
-        for (let i = 0; i < results.length; i++) {
-          const res = results[i];
-          const prov = eligibleProviders[i];
-          if (res.status === "fulfilled" && Array.isArray(res.value)) {
-            for (const t of res.value) {
-              const existing = tokenMap.get(t.address);
-              if (!existing) {
-                tokenMap.set(t.address, t);
-              } else {
-                // Enrich existing token metadata
-                if (!existing.logoUrl && t.logoUrl) existing.logoUrl = t.logoUrl;
-                if (!existing.explorerRateUsd && t.explorerRateUsd) existing.explorerRateUsd = t.explorerRateUsd;
-                if (existing.symbol === "UNKNOWN" && t.symbol !== "UNKNOWN") existing.symbol = t.symbol;
-                if (existing.name === "Unknown Token" && t.name !== "Unknown Token") existing.name = t.name;
-                if (t.verified) existing.verified = true;
-                if (t.protocol && !existing.protocol) existing.protocol = t.protocol;
-                if (t.rawBalance && t.rawBalance !== "0" && existing.rawBalance === "0") {
-                  existing.rawBalance = t.rawBalance;
-                }
+      const tokenMap = new Map<string, DiscoveredToken>();
+      const rejected: string[] = [];
+
+      for (let i = 0; i < results.length; i++) {
+        const res = results[i];
+        const prov = eligibleProviders[i];
+        if (res.status === "fulfilled" && Array.isArray(res.value)) {
+          for (const t of res.value) {
+            const existing = tokenMap.get(t.address);
+            if (!existing) {
+              tokenMap.set(t.address, t);
+            } else {
+              // Enrich existing token metadata
+              if (!existing.logoUrl && t.logoUrl) existing.logoUrl = t.logoUrl;
+              if (!existing.explorerRateUsd && t.explorerRateUsd) existing.explorerRateUsd = t.explorerRateUsd;
+              if (existing.symbol === "UNKNOWN" && t.symbol !== "UNKNOWN") existing.symbol = t.symbol;
+              if (existing.name === "Unknown Token" && t.name !== "Unknown Token") existing.name = t.name;
+              if (t.verified) existing.verified = true;
+              if (t.protocol && !existing.protocol) existing.protocol = t.protocol;
+              if (t.rawBalance && t.rawBalance !== "0" && existing.rawBalance === "0") {
+                existing.rawBalance = t.rawBalance;
               }
             }
-          } else if (res.status === "rejected") {
-            rejected.push(`${prov.id}: ${res.reason instanceof Error ? res.reason.message.slice(0, 80) : String(res.reason).slice(0, 80)}`);
           }
+        } else if (res.status === "rejected") {
+          rejected.push(`${prov.id}: ${res.reason instanceof Error ? res.reason.message.slice(0, 80) : String(res.reason).slice(0, 80)}`);
         }
+      }
 
-        // Jika semua provider eligible gagal, throw supaya portfolio bisa tampilkan warning partial (jujur)
-        if (tokenMap.size === 0 && rejected.length > 0 && rejected.length === eligibleProviders.length) {
-          throw new Error(rejected.join(" | "));
-        }
-        // Jika sebagian gagal tapi ada data, tetap return data (jangan throw), tapi log rejected untuk debug cache tidak perlu
+      // Jika semua provider eligible gagal, throw supaya portfolio bisa tampilkan warning partial (jujur)
+      if (tokenMap.size === 0 && rejected.length > 0 && rejected.length === eligibleProviders.length) {
+        throw new Error(rejected.join(" | "));
+      }
+      // Jika sebagian gagal tapi ada data, tetap return data (jangan throw), tapi log rejected untuk debug cache tidak perlu
 
-        return Array.from(tokenMap.values());
-      },
-      { freshMs: 15_000, staleMs: 180_000 }
-    );
-    return value;
-  } catch {
-    return [];
-  }
+      return Array.from(tokenMap.values());
+    },
+    { freshMs: 15_000, staleMs: 180_000 }
+  );
+  return value;
 }
 
 /** Metadata satu token (halaman detail). Best-effort. */

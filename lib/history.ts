@@ -222,6 +222,9 @@ function mapPricesToDaily(raw: number[][], targets: number[]): (number | null)[]
   });
 }
 
+/** Skala harga 1e8 (8 desimal) — dipakai perkalian BigInt agar presisi raw > 2^53 tetap utuh. */
+const PRICE_SCALE = 1e8;
+
 interface TokenInfo {
   chain: ChainKey;
   address: string;
@@ -247,7 +250,6 @@ async function buildHistory(address: string, range: HistoryRange): Promise<Histo
     ]);
   } catch {
     // graceful fallback: flat points as spec
-    const now = Date.now();
     return {
       points: targets.map((t) => ({ t, value: 0 })),
       range,
@@ -335,12 +337,24 @@ async function buildHistory(address: string, range: HistoryRange): Promise<Histo
     for (const ti of candidates) {
       const key = `${ti.chain}:${ti.address.toLowerCase()}`;
       const arr = pricesByKey.get(key);
-      const bal = Number(ti.balance);
-      if (!Number.isFinite(bal) || bal === 0) continue;
       let price: number | null = null;
       if (arr && arr[idx] !== null && arr[idx] !== undefined) price = arr[idx] as number;
       if (price === null || !Number.isFinite(price) || price <= 0) price = ti.currentPrice;
       if (price === null || !Number.isFinite(price)) continue;
+      // Presisi: pakai rawBalance via BigInt (skala harga 1e8) bila tersedia —
+      // hindari kehilangan presisi Number(balance) untuk raw > 2^53.
+      try {
+        const raw = ti.token.rawBalance ? BigInt(ti.token.rawBalance) : null;
+        if (raw !== null && raw !== 0n) {
+          const priceScaled = BigInt(Math.round(price * PRICE_SCALE));
+          sum += Number((raw * priceScaled) / 10n ** BigInt(ti.token.decimals)) / PRICE_SCALE;
+          continue;
+        }
+      } catch {
+        // rawBalance rusak/invalid → jatuh ke jalur lama di bawah
+      }
+      const bal = Number(ti.balance);
+      if (!Number.isFinite(bal) || bal === 0) continue;
       sum += bal * price;
     }
     // guard: if sum is 0 but currentTotal exists (should not), use current

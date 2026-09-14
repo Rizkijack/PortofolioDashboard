@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAddress } from "@/lib/chains";
 import { fetchHistory, type HistoryRange } from "@/lib/history";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -8,6 +9,9 @@ export const runtime = "nodejs";
 const ALLOWED: HistoryRange[] = ["7d", "30d", "90d"];
 
 export async function GET(req: NextRequest) {
+  const rl = rateLimit(req);
+  if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   const sp = req.nextUrl.searchParams;
   const address = sp.get("address");
 

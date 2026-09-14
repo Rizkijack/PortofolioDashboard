@@ -5,6 +5,7 @@ import { fetchTokenMeta } from "@/lib/discovery";
 import { resolveQuotes, fillFromDexScreener } from "@/lib/oracle";
 import { fetchOhlcv, fetchPairs, overviewOf } from "@/lib/oracle/dexscreener";
 import { withFailover } from "@/lib/rpc";
+import { rateLimit } from "@/lib/rate-limit";
 import { rawToDecimalString } from "@/lib/format";
 import { NATIVE_ADDRESS, type PriceQuote, type TokenBalance, type TokenDetailResponse } from "@/lib/types";
 
@@ -19,6 +20,9 @@ const ERC20_META = parseAbi([
 ]);
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ chain: string; addr: string }> }) {
+  const rl = rateLimit(req);
+  if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   const { chain: chainParam, addr } = await ctx.params;
   const meta = chainByKey(chainParam);
   if (!meta) return NextResponse.json({ error: "unknown chain" }, { status: 404 });

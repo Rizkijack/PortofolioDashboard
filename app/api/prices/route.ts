@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchQuotesFor, parsePriceIds, fetchSlugQuotes, isCanonicalId } from "@/lib/prices";
 import { resolveQuotes, fillFromDexScreener } from "@/lib/oracle";
 import { discoverTokens } from "@/lib/discovery";
+import { chainByKey } from "@/lib/chains";
+import { rateLimit } from "@/lib/rate-limit";
 import { NATIVE_ADDRESS } from "@/lib/types";
 import type { ChainKey } from "@/lib/types";
 
@@ -21,6 +23,9 @@ function isNativeAddress(addr: string): boolean {
  * GET /api/prices?s=base:0x…:ETH,robinhood:0x…:NVDA  → dengan simbol (Tier 1 langsung)
  */
 export async function GET(req: NextRequest) {
+  const rl = rateLimit(req);
+  if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   const sp = req.nextUrl.searchParams;
 
   // ── bentuk dengan simbol eksplisit
@@ -35,7 +40,9 @@ export async function GET(req: NextRequest) {
         const [chain, address, symbol] = r.split(":");
         return { chain, address, symbol };
       })
-      .filter((r) => r.chain && /^0x[a-fA-F0-9]{40}$/.test(r.address ?? ""));
+      // chain wajib ada di allowlist (chainByKey) — jangan biarkan chain liar
+      // mencemari cache-key / dikirim ke oracle sebagai cast ChainKey
+      .filter((r) => !!r.chain && !!chainByKey(r.chain) && /^0x[a-fA-F0-9]{40}$/.test(r.address ?? ""));
 
     const grouped = new Map<string, Array<{ address: string; symbol: string; isNative?: boolean }>>();
     for (const it of rows) {

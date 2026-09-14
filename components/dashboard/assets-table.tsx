@@ -5,6 +5,16 @@ import { chainMeta, getChainById, CHAINS } from "@/lib/chains";
 import type { PortfolioPosition } from "@/lib/compat";
 import { filterAndSortPositions, type FilterState } from "@/lib/filter";
 
+/**
+ * Logo berasal dari explorer third-party (untrusted): hanya URL https absolut
+ * yang boleh dirender. Tolak data:, javascript:, http:, dan whitespace.
+ */
+export function isSafeLogo(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const u = url.trim().toLowerCase();
+  return u.startsWith("https://");
+}
+
 export function AssetsTable({
   positions,
   filterChain,
@@ -73,15 +83,17 @@ export function AssetsTable({
               const explorerTokenUrl = p.isNative
                 ? `${explorerBase}`
                 : `${explorerBase}/token/${p.token.address}`;
+              // logo tidak dipercaya — hanya https yang dirender, selain itu fallback letter avatar
+              const logoUrl = p.token.logo && isSafeLogo(p.token.logo) ? p.token.logo.trim() : null;
 
               return (
                 <tr key={`${p.chainId}-${p.token.address}-${i}`} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-800/50">
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
-                      {p.token.logo ? (
+                      {logoUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={p.token.logo}
+                          src={logoUrl}
                           alt={p.token.symbol}
                           className="h-8 w-8 rounded-xl object-cover border border-zinc-200 dark:border-zinc-800"
                         />

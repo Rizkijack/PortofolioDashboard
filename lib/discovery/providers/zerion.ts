@@ -47,7 +47,8 @@ export const zerionProvider: TokenDiscoveryProvider = {
   name: "Zerion API",
   supportsChain: (chain: ChainKey) => Boolean(ZERION_CHAINS[chain]),
   discoverTokens: async (chain: ChainKey, userAddress: string): Promise<DiscoveredToken[]> => {
-    const apiKey = process.env.ZERION_API_KEY || process.env.NEXT_PUBLIC_ZERION_API_KEY;
+    // Hanya key server-only — NEXT_PUBLIC_* tidak dipakai karena ter-bundle ke client JS.
+    const apiKey = process.env.ZERION_API_KEY;
     const targetChain = ZERION_CHAINS[chain];
     if (!apiKey || !targetChain) return [];
 
