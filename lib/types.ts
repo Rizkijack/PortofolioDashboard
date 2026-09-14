@@ -32,6 +32,8 @@ export type PriceSource =
   | "binance-ws"
   | "redstone-api"
   | "dexscreener"
+  | "geckoterminal"
+  | "birdeye"
   | "blockscout"
   | "coingecko"
   | "none";

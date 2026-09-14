@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createChart, ColorType, CandlestickSeries, AreaSeries } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
 import { CHAINS, chainMeta, getChainById } from "@/lib/chains";
-import { fmtNumber, fmtUsd, fmtPct } from "@/lib/utils";
+import { fmtNumber, fmtUsd } from "@/lib/utils";
 import type { PortfolioPosition } from "@/lib/compat";
 import type { TokenDetailResponse } from "@/lib/types";
 

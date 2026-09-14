@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { ConnectButton } from "@/components/wallet/connect-button";
 import { PriceTicker } from "@/components/dashboard/price-ticker";
 import { NetworthCard } from "@/components/dashboard/networth-card";
@@ -11,9 +11,12 @@ import { HistoryChart } from "@/components/dashboard/history-chart";
 import { TxHistory } from "@/components/dashboard/tx-history";
 import { DefiPositions } from "@/components/dashboard/defi-positions";
 import { TokenDetailModal } from "@/components/dashboard/token-detail-modal";
+import { AddressBar } from "@/components/dashboard/address-bar";
+import { AssetAllocationBento } from "@/components/dashboard/asset-allocation-bento";
 import { usePrices } from "@/hooks/usePrices";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { fmtPct } from "@/lib/utils";
+import { isAddress } from "@/lib/chains";
 import type { PortfolioPosition } from "@/lib/compat";
 import { filterAndSortPositions, getFilterCounts, type FilterState } from "@/lib/filter";
 
@@ -27,13 +30,52 @@ const DEFAULT_FILTERS: FilterState = {
 };
 
 export default function HomePage() {
-  const [address, setAddress] = useState<string | undefined>(undefined);
+  const [activeAddress, setActiveAddress] = useState<string | undefined>(() => {
+    if (typeof window === "undefined") return undefined;
+    const sp = new URLSearchParams(window.location.search);
+    const queryAddr = sp.get("address");
+    return queryAddr && isAddress(queryAddr) ? queryAddr : undefined;
+  });
+  const [connectedAddress, setConnectedAddress] = useState<string | undefined>(undefined);
   const [selectedChain, setSelectedChain] = useState<number | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [selectedPosition, setSelectedPosition] = useState<PortfolioPosition | null>(null);
 
+  // Update active address & URL search param
+  const handleSelectAddress = useCallback((addr: string | undefined) => {
+    setActiveAddress(addr);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (addr && isAddress(addr)) {
+        url.searchParams.set("address", addr);
+      } else {
+        url.searchParams.delete("address");
+      }
+      window.history.pushState({}, "", url.toString());
+    }
+  }, []);
+
+  const handleWalletConnect = useCallback(
+    (walletAddr: string) => {
+      setConnectedAddress(walletAddr);
+      // Jika sebelumnya belum ada address manual yang dipantau, otomatis ikuti wallet
+      if (!activeAddress) {
+        handleSelectAddress(walletAddr);
+      }
+    },
+    [activeAddress, handleSelectAddress]
+  );
+
+  const handleWalletDisconnect = useCallback(() => {
+    setConnectedAddress(undefined);
+    // Jika activeAddress sama dengan wallet yang didisconnect, reset activeAddress
+    if (activeAddress && connectedAddress && activeAddress.toLowerCase() === connectedAddress.toLowerCase()) {
+      handleSelectAddress(undefined);
+    }
+  }, [activeAddress, connectedAddress, handleSelectAddress]);
+
   const { updatedAt: priceUpdatedAt } = usePrices();
-  const { data: portfolio, loading, streamLive } = usePortfolio(address);
+  const { data: portfolio, loading, streamLive } = usePortfolio(activeAddress);
 
   const totalUsd = portfolio?.totalUsd ?? 0;
   const changeUsd = portfolio?.change24hUsd ?? 0;
@@ -84,11 +126,18 @@ export default function HomePage() {
               5 chains • Base • BSC • Ink • HYPE • HOOD
             </span>
           </div>
-          <ConnectButton onConnect={setAddress} onDisconnect={() => setAddress(undefined)} />
+          <ConnectButton onConnect={handleWalletConnect} onDisconnect={handleWalletDisconnect} />
         </div>
       </header>
 
       <main className="mx-auto max-w-[1280px] w-full px-4 md:px-6 py-6 flex flex-col gap-6">
+        {/* Manual Address Bar & Watchlist Switcher */}
+        <AddressBar
+          currentAddress={activeAddress}
+          connectedWalletAddress={connectedAddress}
+          onSelectAddress={handleSelectAddress}
+        />
+
         {/* Price ticker — real-time oracle */}
         <PriceTicker />
 
@@ -105,7 +154,7 @@ export default function HomePage() {
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold uppercase tracking-widest">Allocation • by chain</h2>
               <span className="text-xs text-zinc-500">
-                {address ? (streamLive ? "Stream live" : "Live") : "Belum ada wallet"} •{" "}
+                {activeAddress ? (streamLive ? "Stream live" : "Live") : "Belum ada wallet"} •{" "}
                 {portfolio?.positions.length ?? 0} aset
               </span>
             </div>
@@ -113,7 +162,7 @@ export default function HomePage() {
             <div className="rounded-2xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 p-5 flex flex-col justify-center gap-3 min-h-[110px]">
               {!portfolio || portfolio.positions.length === 0 ? (
                 <p className="text-xs text-zinc-500">
-                  {address ? "Memuat alokasi on-chain…" : "Connect wallet untuk melihat alokasi per chain."}
+                  {activeAddress ? "Memuat alokasi on-chain…" : "Connect wallet atau masukkan alamat di atas untuk melihat alokasi per chain."}
                 </p>
               ) : (
                 <>
@@ -150,16 +199,21 @@ export default function HomePage() {
               <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800 p-3">
                 <p className="uppercase tracking-widest text-zinc-500">Oracle</p>
                 <p className="font-semibold mt-1 flex items-center gap-1">
-                  <span className={`h-2 w-2 rounded-full ${address ? "bg-emerald-500 animate-pulse" : "bg-zinc-400"}`} />
-                  {address ? (streamLive ? "SSE push" : "polling") : "idle"}
+                  <span className={`h-2 w-2 rounded-full ${activeAddress ? "bg-emerald-500 animate-pulse" : "bg-zinc-400"}`} />
+                  {activeAddress ? (streamLive ? "SSE push" : "polling") : "idle"}
                 </p>
               </div>
             </div>
           </div>
         </div>
 
+        {/* Allocation by asset class — klasifikasi kategori + profil risiko (komputasi klien) */}
+        <div className="grid grid-cols-1 gap-4">
+          <AssetAllocationBento portfolio={portfolio} loading={loading} hasAddress={Boolean(activeAddress)} />
+        </div>
+
         {/* Net worth history chart — 7d/30d/90d */}
-        <HistoryChart address={address} />
+        <HistoryChart address={activeAddress} />
 
         {/* Peringatan chain parsial — transparan, bukan angka diam-diam */}
         {warnings.length > 0 && (
@@ -187,7 +241,7 @@ export default function HomePage() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold uppercase tracking-widest">Assets {selectedChain ? `• ${selectedChain}` : "• All chains"}</h2>
-            <span className="text-xs text-zinc-500">{address ? `Tracking ${address.slice(0, 6)}…` : "Connect wallet untuk saldo live on-chain"}</span>
+            <span className="text-xs text-zinc-500">{activeAddress ? `Tracking ${activeAddress.slice(0, 6)}…` : "Connect wallet untuk saldo live on-chain"}</span>
           </div>
           {loading && !portfolio ? (
             <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
@@ -222,18 +276,18 @@ export default function HomePage() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold uppercase tracking-widest">Transactions</h2>
-            <span className="text-xs text-zinc-500">{address ? "On-chain history" : "Connect wallet"}</span>
+            <span className="text-xs text-zinc-500">{activeAddress ? "On-chain history" : "Connect wallet"}</span>
           </div>
-          <TxHistory address={address} />
+          <TxHistory address={activeAddress} />
         </div>
 
         {/* DeFi Positions — Uniswap / SushiSwap / DexScreener / GeckoTerminal / Birdeye */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold uppercase tracking-widest">DeFi Positions</h2>
-            <span className="text-xs text-zinc-500">{address ? "LP • Vault • Staking" : "Connect wallet"}</span>
+            <span className="text-xs text-zinc-500">{activeAddress ? "LP • Vault • Staking" : "Connect wallet"}</span>
           </div>
-          <DefiPositions address={address} />
+          <DefiPositions address={activeAddress} />
         </div>
 
         {/* How real-time works */}
@@ -275,7 +329,7 @@ export default function HomePage() {
       {selectedPosition && (
         <TokenDetailModal
           position={selectedPosition}
-          ownerAddress={address}
+          ownerAddress={activeAddress}
           onClose={() => setSelectedPosition(null)}
         />
       )}

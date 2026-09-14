@@ -219,7 +219,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ chain: stri
     if (Number.isFinite(p) && p > 0) {
       price = {
         usd: p,
-        source: "geckoterminal" as any,
+        source: "geckoterminal",
         updatedAt: Date.now(),
         fetchedAt: Date.now(),
         ageMs: 0,
@@ -297,7 +297,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ chain: stri
   }
   if (gtPoolAddr) {
     priceFeeds.push({
-      source: "geckoterminal" as any,
+      source: "geckoterminal",
       address: gtPoolAddr,
       label: "geckoterminal pool",
     });
