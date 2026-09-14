@@ -7,6 +7,7 @@ Tema: **minimal-bold** — bento grid, off-black + white, 1 accent emerald, typo
 ---
 
 *Deployed at [dashboardportofolio.vercel.app](https://dashboardportofolio.vercel.app)*
+*Production branch: `main`*
 
 ## Arsitektur Simple
 
