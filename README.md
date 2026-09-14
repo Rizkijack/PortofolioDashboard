@@ -4,6 +4,10 @@ Minimal-bold dashboard untuk tracking portofolio onchain secara **real-time** di
 
 Tema: **minimal-bold** — bento grid, off-black + white, 1 accent emerald, typography Geist, tanpa purple glow.
 
+---
+
+*Deployed at [dashboardportofolio.vercel.app](https://dashboardportofolio.vercel.app)*
+
 ## Arsitektur Simple
 
 ```
