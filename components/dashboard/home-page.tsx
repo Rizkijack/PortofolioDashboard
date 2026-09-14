@@ -30,12 +30,9 @@ const DEFAULT_FILTERS: FilterState = {
 };
 
 export default function HomePage() {
-  const [activeAddress, setActiveAddress] = useState<string | undefined>(() => {
-    if (typeof window === "undefined") return undefined;
-    const sp = new URLSearchParams(window.location.search);
-    const queryAddr = sp.get("address");
-    return queryAddr && isAddress(queryAddr) ? queryAddr : undefined;
-  });
+  // HYDRATION-SAFE: jangan baca window di state initializer (server render tanpa
+  // address, sinkronisasi ?address=… dilakukan useEffect setelah mount).
+  const [activeAddress, setActiveAddress] = useState<string | undefined>(undefined);
   const [connectedAddress, setConnectedAddress] = useState<string | undefined>(undefined);
   const [selectedChain, setSelectedChain] = useState<number | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -208,9 +205,7 @@ export default function HomePage() {
         </div>
 
         {/* Allocation by asset class — klasifikasi kategori + profil risiko (komputasi klien) */}
-        <div className="grid grid-cols-1 gap-4">
-          <AssetAllocationBento portfolio={portfolio} loading={loading} hasAddress={Boolean(activeAddress)} />
-        </div>
+        <AssetAllocationBento portfolio={portfolio} loading={loading} hasAddress={Boolean(activeAddress)} />
 
         {/* Net worth history chart — 7d/30d/90d */}
         <HistoryChart address={activeAddress} />

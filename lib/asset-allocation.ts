@@ -78,12 +78,15 @@ const STABLE_SYMBOLS: ReadonlySet<string> = new Set([
   "SYRUPUSDG",
   "USDB",
   "USDX",
+  // Yield-bearing stable umum (varian deposito / liquid staking USD).
+  "SUSDE",
+  "SUSDS",
   // "U" = United Stables (ticker 1 huruf, canonical Robinhood). Risiko false
   // positive rendah di 5 chain yang didukung, manfaat disambiguasinya besar.
   "U",
 ]);
 
-/** Set symbol aset major (uppercase) — native/L1 blue chip + wrapped BTC/ETH. */
+/** Set symbol aset major (uppercase) — native/L1 blue chip + wrapped/BTC/ETH + LST ETH. */
 const MAJOR_SYMBOLS: ReadonlySet<string> = new Set([
   "ETH",
   "WETH",
@@ -94,19 +97,26 @@ const MAJOR_SYMBOLS: ReadonlySet<string> = new Set([
   "CBBTC",
   "BTCB",
   "HYPE",
+  // Liquid staking / wrapped ETH — eksposur setara ETH, bukan LP.
+  "STETH",
+  "WSTETH",
+  "CBETH",
+  "WEETH",
+  "RETH",
 ]);
 
 /**
  * Prefix LP umum — dicocokkan case-insensitive terhadap symbol uppercase.
- * Daftar konservatif agar minim false positive.
+ * WAJIB mengandung tanda hubung ("STK-XXX", bukan "STK") agar ticker seperti
+ * STETH / STONE / STG / STRK tidak salah masuk kategori defi.
  */
-const LP_PREFIXES_CASE_INSENSITIVE = ["UNI-", "CAKE-", "SUSHI-", "STK", "ST"] as const;
+const LP_PREFIXES_CASE_INSENSITIVE = ["UNI-", "CAKE-", "SUSHI-", "STK-", "ST-"] as const;
 
 /**
- * Prefix LP pendek ("v" Velodrome/Aerodrome, "vv") — case-SENSITIVE lowercase
- * agar ticker uppercase seperti "VET" tidak salah masuk kategori defi.
+ * Prefix LP pendek ("v" Velodrome/Aerodrome) — case-SENSITIVE lowercase agar
+ * ticker uppercase seperti "VET" tidak salah masuk kategori defi.
  */
-const LP_PREFIXES_CASE_SENSITIVE = ["v", "vv"] as const;
+const LP_PREFIXES_CASE_SENSITIVE = ["v"] as const;
 
 /** Label siap-tampil per kategori (dipakai legend UI). */
 const CATEGORY_LABELS: Record<AssetCategory, string> = {
@@ -129,19 +139,23 @@ const CATEGORY_ORDER: AssetCategory[] = ["stable", "major", "defi", "ecosystem"]
 
 /**
  * Klasifikasikan satu posisi ke kategori aset.
- * Urutan prioritas: defi → stable → major → ecosystem (default).
+ *
+ * Urutan prioritas (paling presisi → paling longgar):
+ * 1. Sinyal defi eksplisit: `protocol`, pool "A/B", akhiran " LP".
+ * 2. Exact-match set: stable → major (symptom ticker seperti "STETH" dianggap
+ *    major, bukan LP — prefix longgar selalu dievaluasi PALING AKHIR).
+ * 3. Disambiguasi symbol ambigu via token canonical per chain (address lower).
+ * 4. Prefix LP longgar (harus unik, mis. "UNI-", "v").
+ * 5. Default: ecosystem.
  */
 export function classifyPosition(p: PortfolioPosition): AssetCategory {
   const symbol = p.token.symbol.trim();
   const upper = symbol.toUpperCase();
 
-  // 1) DeFi (LP / vault / staking): ada protokol, pool "A/B", akhiran " LP",
-  //    atau prefix LP umum.
+  // 1) DeFi eksplisit: ada protokol, pool "A/B", atau akhiran " LP".
   if (p.protocol) return "defi";
   if (upper.includes("/")) return "defi";
   if (upper.endsWith(" LP")) return "defi";
-  if (LP_PREFIXES_CASE_INSENSITIVE.some((pre) => upper.startsWith(pre))) return "defi";
-  if (LP_PREFIXES_CASE_SENSITIVE.some((pre) => symbol.startsWith(pre))) return "defi";
 
   // Disambiguasi symbol ambigu via token canonical per chain (address lowercase).
   // Contoh: "U" di robinhood = United Stables (stable), WETH/CBBTC canonical.
@@ -156,7 +170,12 @@ export function classifyPosition(p: PortfolioPosition): AssetCategory {
   if (MAJOR_SYMBOLS.has(upper)) return "major";
   if (canonical && MAJOR_SYMBOLS.has(canonical.symbol.toUpperCase())) return "major";
 
-  // 4) Ecosystem: default — saham Robinhood (INTC, MSFT, TSLA…), meme, long-tail.
+  // 4) Prefix LP longgar — terakhir, agar tidak menelan ticker umum
+  //    (STETH, STONE, STG, STRK, VET, CAKE, UNI tidak lolos ke sini).
+  if (LP_PREFIXES_CASE_INSENSITIVE.some((pre) => upper.startsWith(pre))) return "defi";
+  if (LP_PREFIXES_CASE_SENSITIVE.some((pre) => symbol.startsWith(pre))) return "defi";
+
+  // 5) Ecosystem: default — saham Robinhood (INTC, MSFT, TSLA…), meme, long-tail.
   return "ecosystem";
 }
 
@@ -188,7 +207,8 @@ export function buildAllocationBreakdown(positions: PortfolioPosition[]): Alloca
       continue; // tidak memengaruhi total, pct, maupun skor risiko
     }
     a.valueUsd += p.valueUsd;
-    a.top.set(p.token.symbol, p.valueUsd);
+    // Akumulasi simbol yang sama lintas posisi/chain (mis. USDC di 2 chain).
+    a.top.set(p.token.symbol, (a.top.get(p.token.symbol) ?? 0) + p.valueUsd);
   }
 
   const safeTotal = totalUsd > 0 ? totalUsd : 0;

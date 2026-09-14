@@ -33,7 +33,9 @@ const CATEGORY_META: Record<AssetCategory, { dotClass: string; strokeClass: stri
 // Geometri donut SVG murni (tanpa library).
 const DONUT_R = 52;
 const DONUT_CIRC = 2 * Math.PI * DONUT_R;
-// Slice < 2% tetap digambar: panjang busur minimal 0.5% dari keliling.
+// Slice < 2% tetap digambar dengan busur minimal 0.5% keliling. Bleed ≤0.5%
+// hanya mungkin terlihat pada slice TERAKHIR — slice sebelumnya tertutup oleh
+// slice berikutnya yang digambar di atasnya (urutan SVG menang).
 const MIN_SEG = 0.005 * DONUT_CIRC;
 
 /** Satu kalimat insight statis berbasis verdict untuk keputusan rebalancing. */
@@ -126,6 +128,9 @@ export function AssetAllocationBento({
 
   const { risk, slices, totalUsd } = breakdown;
   const hasData = Boolean(portfolio && portfolio.positions.length > 0);
+  // Skor/bars risiko hanya bermakna bila ada posisi berharga — tanpa itu
+  // tampil "—" (filosofi repo: null = tidak diketahui, bukan 0/karangan).
+  const hasPricedValue = totalUsd > 0;
 
   const cardClass = "rounded-[24px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6";
 
@@ -188,7 +193,17 @@ export function AssetAllocationBento({
           </div>
 
           {/* Segmented bar proporsional — width % per kategori */}
-          <div className="mt-5 flex h-3 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+          <div
+            className="mt-5 flex h-3 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800"
+            role="img"
+            aria-label={
+              "Proporsi kategori: " +
+              slices
+                .filter((s) => s.pct > 0)
+                .map((s) => `${s.label} ${s.pct.toFixed(1)}%`)
+                .join(", ")
+            }
+          >
             {slices
               .filter((s) => s.pct > 0)
               .map((s) => (
@@ -208,38 +223,66 @@ export function AssetAllocationBento({
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="font-medium">Defensive (stable)</span>
-                  <span className="tabular-nums text-zinc-500">{risk.defensivePct.toFixed(1)}%</span>
+                  <span className="tabular-nums text-zinc-500">{hasPricedValue ? `${risk.defensivePct.toFixed(1)}%` : "—"}</span>
                 </div>
-                <div className="h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
-                  <div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, risk.defensivePct)}%` }} />
+                <div
+                  role="progressbar"
+                  aria-label="Porsi aset defensif (stablecoin)"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={hasPricedValue ? Math.round(risk.defensivePct) : undefined}
+                  className="h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden"
+                >
+                  <div className="h-full bg-emerald-500" style={{ width: `${hasPricedValue ? Math.min(100, risk.defensivePct) : 0}%` }} />
                 </div>
               </div>
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="font-medium">Volatile (major/defi/ecosystem)</span>
-                  <span className="tabular-nums text-zinc-500">{risk.volatilePct.toFixed(1)}%</span>
+                  <span className="tabular-nums text-zinc-500">{hasPricedValue ? `${risk.volatilePct.toFixed(1)}%` : "—"}</span>
                 </div>
-                <div className="h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
-                  <div className="h-full bg-amber-500" style={{ width: `${Math.min(100, risk.volatilePct)}%` }} />
+                <div
+                  role="progressbar"
+                  aria-label="Porsi aset volatil (major/defi/ecosystem)"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={hasPricedValue ? Math.round(risk.volatilePct) : undefined}
+                  className="h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden"
+                >
+                  <div className="h-full bg-amber-500" style={{ width: `${hasPricedValue ? Math.min(100, risk.volatilePct) : 0}%` }} />
                 </div>
               </div>
             </div>
 
             <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800 p-4 flex flex-col gap-2">
               <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">Risk score</p>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold tabular-nums leading-none">{risk.score.toFixed(1)}</span>
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold capitalize",
-                    VERDICT_CHIP[risk.verdict]
-                  )}
-                >
-                  {risk.verdict}
-                </span>
-                <span className="text-[11px] text-zinc-500">/ 100</span>
-              </div>
-              <p className="text-xs text-zinc-500 leading-relaxed">{VERDICT_INSIGHT[risk.verdict]}</p>
+              {hasPricedValue ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-bold tabular-nums leading-none">{risk.score.toFixed(1)}</span>
+                    <span
+                      className={cn(
+                        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold capitalize",
+                        VERDICT_CHIP[risk.verdict]
+                      )}
+                    >
+                      {risk.verdict}
+                    </span>
+                    <span className="text-[11px] text-zinc-500">/ 100</span>
+                  </div>
+                  <p className="text-xs text-zinc-500 leading-relaxed">{VERDICT_INSIGHT[risk.verdict]}</p>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-bold tabular-nums leading-none text-zinc-400">—</span>
+                    <span className="text-[11px] text-zinc-500">/ 100</span>
+                  </div>
+                  <p className="text-xs text-zinc-500 leading-relaxed">
+                    Belum ada posisi berharga — skor risiko tidak tersedia (aset tanpa harga tidak dikarang).
+                  </p>
+                </>
+              )}
             </div>
           </div>
 

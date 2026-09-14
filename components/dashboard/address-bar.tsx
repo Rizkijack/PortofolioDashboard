@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useId } from "react";
+import { useState, useCallback, useEffect, useId } from "react";
 import { isAddress } from "@/lib/chains";
 import { shortAddr } from "@/lib/utils";
 
@@ -30,13 +30,27 @@ export function AddressBar({
 }: AddressBarProps) {
   const [inputVal, setInputVal] = useState(currentAddress ?? "");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [watchlist, setWatchlist] = useState<WatchlistEntry[]>(() => {
-    if (typeof window === "undefined") return [];
+  // HYDRATION-SAFE: mulai dari [] di server & client, baca localStorage +
+  // seed preset di useEffect (setelah mount) — bukan di state initializer.
+  const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const labelInputId = useId();
+
+  // Load watchlist dari localStorage sekali setelah mount; jika kosong, seed
+  // preset bawaan. Dijalankan di sini (bukan initializer render) agar render
+  // pertama selalu identik server vs client (tanpa hydration mismatch).
+  useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as WatchlistEntry[];
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- load-once-on-mount dari external system (localStorage): sekali saja, bukan cascade per render.
+          setWatchlist(parsed);
+          return;
+        }
       }
       const initial = DEFAULT_PRESETS.map((p) => ({
         address: p.address,
@@ -44,15 +58,11 @@ export function AddressBar({
         addedAt: Date.now(),
       }));
       localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
-      return initial;
+      setWatchlist(initial);
     } catch {
-      return [];
+      // localStorage tidak tersedia / korup — biarkan list kosong.
     }
-  });
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [newLabel, setNewLabel] = useState("");
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const labelInputId = useId();
+  }, []);
 
   // Render-time sync saat currentAddress berubah dari luar
   const [prevAddress, setPrevAddress] = useState(currentAddress);
