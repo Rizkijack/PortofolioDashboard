@@ -24,6 +24,7 @@ export function AssetsTable({
   hideUnpriced,
   sortBy,
   dustThreshold,
+  onSelectPosition,
 }: {
   positions: PortfolioPosition[];
   filterChain?: number | null;
@@ -33,6 +34,7 @@ export function AssetsTable({
   hideUnpriced?: boolean;
   sortBy?: FilterState["sortBy"];
   dustThreshold?: number;
+  onSelectPosition?: (pos: PortfolioPosition) => void;
 }) {
   const chainFiltered = filterChain ? positions.filter((p) => p.chainId === filterChain) : positions;
   const hasFilterProp =
@@ -72,7 +74,7 @@ export function AssetsTable({
               <th className="px-4 py-3 font-medium text-right">Price</th>
               <th className="px-4 py-3 font-medium text-right">Value</th>
               <th className="px-4 py-3 font-medium text-right">24h</th>
-              <th className="px-4 py-3 font-medium text-center">Discovery / Explorer</th>
+              <th className="px-4 py-3 font-medium text-center">Discovery / Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -87,7 +89,13 @@ export function AssetsTable({
               const logoUrl = p.token.logo && isSafeLogo(p.token.logo) ? p.token.logo.trim() : null;
 
               return (
-                <tr key={`${p.chainId}-${p.token.address}-${i}`} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-800/50">
+                <tr
+                  key={`${p.chainId}-${p.token.address}-${i}`}
+                  onClick={() => onSelectPosition?.(p)}
+                  className={`hover:bg-zinc-50/80 dark:hover:bg-zinc-800/60 transition ${
+                    onSelectPosition ? "cursor-pointer" : ""
+                  }`}
+                >
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
                       {logoUrl ? (
@@ -127,19 +135,30 @@ export function AssetsTable({
                   <td className={`px-4 py-4 text-right text-xs font-medium ${(p.change24h || 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                     {(p.change24h || 0) >= 0 ? "+" : ""}{(p.change24h || 0).toFixed(2)}%
                   </td>
-                  <td className="px-4 py-4 text-center">
+                  <td className="px-4 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                     <div className="inline-flex items-center gap-1.5">
                       {p.discoverySource && (
                         <span className="rounded bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase font-mono text-zinc-600 dark:text-zinc-400">
                           {p.discoverySource}
                         </span>
                       )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectPosition?.(p);
+                        }}
+                        className="rounded-lg border border-zinc-200 dark:border-zinc-700 px-2 py-0.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+                        title="Open Token Detail"
+                      >
+                        Chart ↗
+                      </button>
                       {explorerTokenUrl && (
                         <a
                           href={explorerTokenUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-xs text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition"
+                          className="text-xs text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition p-1"
                           title="View on Explorer"
                         >
                           ↗

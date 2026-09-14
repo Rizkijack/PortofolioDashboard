@@ -10,9 +10,11 @@ import { FilterBar } from "@/components/dashboard/filter-bar";
 import { HistoryChart } from "@/components/dashboard/history-chart";
 import { TxHistory } from "@/components/dashboard/tx-history";
 import { DefiPositions } from "@/components/dashboard/defi-positions";
+import { TokenDetailModal } from "@/components/dashboard/token-detail-modal";
 import { usePrices } from "@/hooks/usePrices";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { fmtPct } from "@/lib/utils";
+import type { PortfolioPosition } from "@/lib/compat";
 import { filterAndSortPositions, getFilterCounts, type FilterState } from "@/lib/filter";
 
 const DEFAULT_FILTERS: FilterState = {
@@ -28,6 +30,7 @@ export default function HomePage() {
   const [address, setAddress] = useState<string | undefined>(undefined);
   const [selectedChain, setSelectedChain] = useState<number | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [selectedPosition, setSelectedPosition] = useState<PortfolioPosition | null>(null);
 
   const { updatedAt: priceUpdatedAt } = usePrices();
   const { data: portfolio, loading, streamLive } = usePortfolio(address);
@@ -208,6 +211,7 @@ export default function HomePage() {
                   hideUnpriced={filters.hideUnpriced}
                   sortBy={filters.sortBy}
                   dustThreshold={filters.dustThreshold}
+                  onSelectPosition={setSelectedPosition}
                 />
               </div>
             </>
@@ -266,6 +270,15 @@ export default function HomePage() {
           <span className="hidden sm:inline">Base 8453 • BSC 56 • Ink 57073 • HyperEVM 999 • Robinhood 4663</span>
         </div>
       </footer>
+
+      {/* Token Detail Modal (TradingView + Multi-Source Metrics) */}
+      {selectedPosition && (
+        <TokenDetailModal
+          position={selectedPosition}
+          ownerAddress={address}
+          onClose={() => setSelectedPosition(null)}
+        />
+      )}
     </div>
   );
 }

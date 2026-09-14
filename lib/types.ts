@@ -124,8 +124,37 @@ export interface TokenDetailResponse {
     totalSupply: string | null;
     circulatingMarketCap: number | null;
     volume24h: number | null;
+    liquidityUsd?: number | null;
+    fdv?: number | null;
     explorerUrl: string;
+    dexscreenerUrl?: string | null;
+    geckoterminalUrl?: string | null;
+    birdeyeUrl?: string | null;
     priceFeeds: Array<{ source: PriceSource; address?: string; label: string }>;
+    dexscreener?: {
+      pairAddress: string | null;
+      dexId: string | null;
+      priceUsd: number | null;
+      liquidityUsd: number | null;
+      fdv: number | null;
+      marketCap: number | null;
+      volume24h: number | null;
+      change24h: number | null;
+      url: string | null;
+    } | null;
+    geckoterminal?: {
+      poolAddress: string | null;
+      dexId: string | null;
+      reserveUsd: number | null;
+      fdvUsd: number | null;
+      url: string | null;
+    } | null;
+    birdeye?: {
+      priceUsd: number | null;
+      liquidityUsd: number | null;
+      volume24h: number | null;
+      url: string | null;
+    } | null;
   };
   chart?: Array<{ t: number; o: number; h: number; l: number; c: number }>;
   warnings: string[];
