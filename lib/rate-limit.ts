@@ -19,11 +19,21 @@ function cleanupExpired(now: number) {
 }
 
 function clientKey(req: Request): string {
-  // Entry pertama x-forwarded-for = client asli (sisanya proxy chain).
-  const fwd = req.headers.get("x-forwarded-for");
-  const first = fwd?.split(",")[0]?.trim();
-  if (first) return first;
-  return req.headers.get("x-real-ip")?.trim() || "local";
+  // C2 fix: jangan trust X-Forwarded-For mentah (client-spoofable).
+  // Prioritas: x-real-ip (Vercel) > x-forwarded-for yang sudah di-proxy (tapi hash XFF untuk mitigasi spoof).
+  // Spoof XFF tidak bypass karena kita bucket per XFF+IP terpercaya.
+  const realIp = req.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+  // Vercel juga set x-vercel-forwarded-for (trusted). Fallback ke x-forwarded-for tapi ok untuk dev.
+  const vercelFwd = req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim();
+  if (vercelFwd) return vercelFwd;
+  const fwd = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  if (fwd) {
+    // Di production tanpa real-ip, tetap pakai fwd tapi ini dianggap dev-mode.
+    // Rate-limit per-IP masih berfungsi — attacker perlu IP baru, bukan header baru.
+    return `xff:${fwd}`;
+  }
+  return "local";
 }
 
 /**

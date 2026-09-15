@@ -31,6 +31,8 @@ export interface TxPage {
   items: TxItem[];
   nextPageParams?: Record<string, string> | null;
   hasMore: boolean;
+  /** C4 fix: jangan telan error jadi empty — bedakan "tidak ada tx" vs "explorer mati" */
+  error?: string;
 }
 
 const V2_BASES: Partial<Record<ChainKey, string>> = {
@@ -327,6 +329,21 @@ async function fetchBscViaRoutescan(
 
   const items: TxItem[] = validRows
     .map((r) => {
+      // C6 fix: guard BigInt per baris — satu baris korup jangan bunuh halaman
+      let fee: string | null = null;
+      try {
+        if (r.gasPrice && r.gasUsed && /^[0-9]+$/.test(String(r.gasPrice).trim()) && /^[0-9]+$/.test(String(r.gasUsed).trim())) {
+          fee = String(BigInt(String(r.gasPrice).trim()) * BigInt(String(r.gasUsed).trim()));
+        } else if (r.gasPrice && r.gasUsed) {
+          // coba parse hex / decimal longgar
+          const gp = String(r.gasPrice).trim();
+          const gu = String(r.gasUsed).trim();
+          const isHex = gp.startsWith("0x") || gu.startsWith("0x");
+          if (isHex) {
+            try { fee = String(BigInt(gp) * BigInt(gu)); } catch { fee = null; }
+          }
+        }
+      } catch { fee = null; }
       const raw: Record<string, unknown> = {
         hash: r.hash,
         from: r.from,
@@ -336,9 +353,11 @@ async function fetchBscViaRoutescan(
         isError: r.isError,
         method: r.functionName ? r.functionName.split("(")[0] : null,
         block_number: r.blockNumber,
-        fee: r.gasPrice && r.gasUsed ? String(BigInt(r.gasPrice) * BigInt(r.gasUsed)) : null,
+        fee,
       };
-      return toTxItem(raw, "bsc");
+      try {
+        return toTxItem(raw, "bsc");
+      } catch { return null; }
     })
     .filter((x): x is TxItem => !!x);
 
@@ -368,15 +387,15 @@ export async function fetchTx(
         { freshMs: 10_000, staleMs: 60_000 }
       );
       return value;
-    } catch {
-      // fallback to empty on error
-      return { items: [], nextPageParams: null, hasMore: false };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message.slice(0, 200) : String(e);
+      return { items: [], nextPageParams: null, hasMore: false, error: `bsc: ${msg}` };
     }
   }
 
   const base = V2_BASES[chain];
   if (!base) {
-    return { items: [], nextPageParams: null, hasMore: false };
+    return { items: [], nextPageParams: null, hasMore: false, error: `no explorer for ${chain}` };
   }
 
   try {
@@ -386,8 +405,9 @@ export async function fetchTx(
       { freshMs: 10_000, staleMs: 60_000 }
     );
     return value;
-  } catch {
-    return { items: [], nextPageParams: null, hasMore: false };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.slice(0, 200) : String(e);
+    return { items: [], nextPageParams: null, hasMore: false, error: `${chain}: ${msg}` };
   }
 }
 

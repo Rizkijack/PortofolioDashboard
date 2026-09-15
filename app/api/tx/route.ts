@@ -98,7 +98,9 @@ export async function GET(req: NextRequest) {
       })
     );
 
-    // Merge & sort
+    // Merge & sort — C4: kumpulkan error per-chain jangan telan
+    const warnings: string[] = [];
+    for (const p of pages) if (p.page.error) warnings.push(p.page.error);
     const allItems: TxItem[] = pages.flatMap((p) => p.page.items);
     allItems.sort((a, b) => {
       const ta = a.timestamp ?? 0;
@@ -146,12 +148,16 @@ export async function GET(req: NextRequest) {
         nextPageParams,
         hasMore,
         fetchedAt: Date.now(),
+        warnings,
+        partial: warnings.length > 0,
       },
       {
-        headers: { "Cache-Control": "public, s-maxage=5" },
+        headers: { "Cache-Control": "private, max-age=5, stale-while-revalidate=10" },
       }
     );
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "tx fetch failed" }, { status: 500 });
+    // jangan bocorkan detail infra mentah ke klien
+    console.error("[tx] ", e instanceof Error ? e.message : String(e));
+    return NextResponse.json({ error: "tx fetch failed" }, { status: 500 });
   }
 }

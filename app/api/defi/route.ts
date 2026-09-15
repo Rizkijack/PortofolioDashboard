@@ -40,13 +40,11 @@ export async function GET(req: NextRequest) {
         partial: warnings.length > 0,
       },
       {
-        headers: { "Cache-Control": "public, s-maxage=5, stale-while-revalidate=10" },
+        headers: { "Cache-Control": "private, max-age=5, stale-while-revalidate=10" },
       }
     );
   } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "defi fetch failed" },
-      { status: 500 }
-    );
+    console.error("[defi] ", e instanceof Error ? e.message : String(e));
+    return NextResponse.json({ error: "defi fetch failed" }, { status: 500 });
   }
 }

@@ -30,14 +30,10 @@ export async function GET(req: NextRequest) {
   try {
     const data = await fetchHistory(address, range);
     return NextResponse.json(data, {
-      headers: {
-        "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
-      },
+      headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" },
     });
   } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "history fetch failed" },
-      { status: 500 }
-    );
+    console.error("[history] ", e instanceof Error ? e.message : String(e));
+    return NextResponse.json({ error: "history fetch failed" }, { status: 500 });
   }
 }

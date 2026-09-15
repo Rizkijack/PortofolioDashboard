@@ -98,29 +98,45 @@ export function usePortfolio(address?: string, preferStream = true) {
         };
         setRaw((prev) => {
           if (!prev) return prev;
+          // M28 fix: recompute totalValueUsd & allocation dari token terpatch, bukan hanya patch baris
+          const nextChains = prev.chains.map((c) => ({
+            ...c,
+            tokens: c.tokens.map((t) => {
+              const q = d.quotes[`${c.chain}:${t.addressLower}`];
+              if (!q) return t;
+              const valueUsd = q.usd === null ? null : Number(t.balance) * q.usd;
+              return {
+                ...t,
+                valueUsd: valueUsd !== null && Number.isFinite(valueUsd) ? valueUsd : null,
+                price: {
+                  ...t.price,
+                  usd: q.usd,
+                  source: q.source as typeof t.price.source,
+                  updatedAt: q.updatedAt,
+                  fetchedAt: Date.now(),
+                  ageMs: Date.now() - q.updatedAt,
+                },
+              };
+            }),
+          }));
+          // hitung ulang total & allocation dari nextChains
+          const grandTotal = nextChains
+            .flatMap((c) => c.tokens)
+            .filter((t) => t.valueUsd !== null)
+            .reduce((s, t) => s + (t.valueUsd as number), 0);
+          const anyPriced = nextChains.some((c) => c.tokens.some((t) => t.valueUsd !== null));
+          const newTotal = grandTotal > 0 ? grandTotal : anyPriced ? 0 : null;
+          // update per-chain totalValueUsd juga (untuk ChainGrid)
+          const patchedChains = nextChains.map((c) => {
+            const chainTotal = c.tokens.filter((t) => t.valueUsd !== null).reduce((s, t) => s + (t.valueUsd as number), 0);
+            const hasPriced = c.tokens.some((t) => t.valueUsd !== null);
+            return { ...c, totalValueUsd: hasPriced ? chainTotal : c.tokens.length === 0 ? 0 : c.totalValueUsd };
+          });
           return {
             ...prev,
             fetchedAt: Date.now(),
-            chains: prev.chains.map((c) => ({
-              ...c,
-              tokens: c.tokens.map((t) => {
-                const q = d.quotes[`${c.chain}:${t.addressLower}`];
-                if (!q) return t;
-                const valueUsd = q.usd === null ? null : Number(t.balance) * q.usd;
-                return {
-                  ...t,
-                  valueUsd,
-                  price: {
-                    ...t.price,
-                    usd: q.usd,
-                    source: q.source as typeof t.price.source,
-                    updatedAt: q.updatedAt,
-                    fetchedAt: Date.now(),
-                    ageMs: Date.now() - q.updatedAt,
-                  },
-                };
-              }),
-            })),
+            totalValueUsd: newTotal,
+            chains: patchedChains,
           };
         });
       } catch {

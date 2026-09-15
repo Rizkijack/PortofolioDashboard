@@ -14,9 +14,10 @@ export function getPublicClient(chain: ChainKey, rpcUrl?: string): PublicClient 
   const cached = clients.get(key);
   if (cached) return cached;
 
+  // M18 fix: timeout 6-8s untuk portfolio path, retry 0 (retry via failover URL)
   const client = createPublicClient({
     chain: VIEM_CHAINS[chain],
-    transport: http(url, { batch: true, retryCount: 1, retryDelay: 250, timeout: 15_000 }),
+    transport: http(url, { batch: true, retryCount: 0, timeout: 8_000 }),
   }) as PublicClient;
 
   clients.set(key, client);

@@ -83,11 +83,12 @@ export function HistoryChart({ address }: { address?: string }) {
     });
     seriesRef.current = areaSeries;
 
-    // Convert ms -> seconds UTCTimestamp
+    // M29 fix: jangan zero-fill null → filter/bridge gap, bukan anjlok ke $0
     const chartData = data
+      .filter((p) => Number.isFinite(p.value) && p.value !== null)
       .map((p) => ({
         time: Math.floor(p.t / 1000) as unknown as import("lightweight-charts").Time,
-        value: Number.isFinite(p.value) ? p.value : 0,
+        value: p.value as number,
       }))
       // lightweight-charts requires sorted asc and deduped time
       .sort((a, b) => (a.time as number) - (b.time as number));
@@ -208,7 +209,13 @@ export function HistoryChart({ address }: { address?: string }) {
     );
   }
 
-  const allFlat = data.length >= 2 && data.every((p) => Math.abs(p.value - data[0].value) < 0.01);
+  // M??: threshold relatif, bukan absolut 0.01 untuk semua skala
+  const allFlat = (() => {
+    if (data.length < 2) return false;
+    const first = data[0].value;
+    if (!Number.isFinite(first) || first === 0) return data.every((p) => Math.abs(p.value - first) < 0.01);
+    return data.every((p) => Math.abs(p.value - first) / Math.abs(first) < 0.001); // 0.1% relatif
+  })();
 
   return (
     <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 flex flex-col gap-4">

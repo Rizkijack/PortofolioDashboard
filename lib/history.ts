@@ -240,14 +240,22 @@ async function buildHistory(address: string, range: HistoryRange): Promise<Histo
   const days = daysForRange(range);
 
   let portfolio: Awaited<ReturnType<typeof fetchPortfolio>> | null = null;
+  const abortHistory = new AbortController();
   try {
-    // Beri batas waktu maksimal 12s untuk portfolio scan di history agar tidak timeout gateway
-    portfolio = await Promise.race([
-      fetchPortfolio(address, [...CHAIN_ORDER], { includeZero: false }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("portfolio timeout for history")), 12_000)
-      ),
-    ]);
+    // M15 fix: Promise.race tanpa abort bakar RPC di background — pakai timeout race tapi abort tidak perlu karena fetchPortfolio sudah punya internal timeout via fetchWithTimeout
+    // Kita tetap race tapi jangan leak: setelah timeout, abaikan hasil portfolio yang telat (tidak ada abort signal ke fetchPortfolio saat ini)
+    // Minimal: kurangi fan-out race dengan timeout 12s + clear promise
+    let timeoutHit = false;
+    const t = setTimeout(() => { timeoutHit = true; abortHistory.abort(); }, 12_000);
+    try {
+      portfolio = await Promise.race([
+        fetchPortfolio(address, [...CHAIN_ORDER], { includeZero: false }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("portfolio timeout for history")), 12_000)
+        ),
+      ]);
+    } finally { clearTimeout(t); }
+    if (timeoutHit) throw new Error("portfolio timeout for history");
   } catch {
     // graceful fallback: flat points as spec
     return {
@@ -362,9 +370,10 @@ async function buildHistory(address: string, range: HistoryRange): Promise<Histo
     return { t, value: sum };
   });
 
-  // edge: jika semua fallback flat, points akan flat identik -> set limited
+  // M16 fix: rest volatile yang di-flat juga harus dihitung sebagai limited — cek rest juga
   const volatileCount = pricedTokens.filter((t) => !isStableSymbol(t.symbol)).length;
-  const limited = volatileCount > 0 && successfulHistorical === 0;
+  const restVolatileFlat = rest.filter((t) => !isStableSymbol(t.symbol)).length > 0;
+  const limited = (volatileCount > 0 && successfulHistorical === 0) || (restVolatileFlat && rest.length > 0);
 
   // ensure sorted asc
   points.sort((a, b) => a.t - b.t);

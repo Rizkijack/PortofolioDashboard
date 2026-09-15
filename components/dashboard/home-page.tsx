@@ -1,18 +1,26 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { ConnectButton } from "@/components/wallet/connect-button";
 import { PriceTicker } from "@/components/dashboard/price-ticker";
 import { NetworthCard } from "@/components/dashboard/networth-card";
 import { ChainGrid } from "@/components/dashboard/chain-grid";
 import { AssetsTable } from "@/components/dashboard/assets-table";
 import { FilterBar } from "@/components/dashboard/filter-bar";
-import { HistoryChart } from "@/components/dashboard/history-chart";
 import { TxHistory } from "@/components/dashboard/tx-history";
 import { DefiPositions } from "@/components/dashboard/defi-positions";
-import { TokenDetailModal } from "@/components/dashboard/token-detail-modal";
 import { AddressBar } from "@/components/dashboard/address-bar";
 import { AssetAllocationBento } from "@/components/dashboard/asset-allocation-bento";
+
+// M24 fix: hanya chart berat yang dynamic ssr:false, bukan seluruh HomePage
+const HistoryChart = dynamic(() => import("@/components/dashboard/history-chart").then((m) => m.HistoryChart), {
+  ssr: false,
+  loading: () => <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 h-[320px] animate-pulse" />,
+});
+const TokenDetailModal = dynamic(() => import("@/components/dashboard/token-detail-modal").then((m) => m.TokenDetailModal), {
+  ssr: false,
+});
 import { usePrices } from "@/hooks/usePrices";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { fmtPct } from "@/lib/utils";
@@ -79,9 +87,16 @@ export default function HomePage() {
   const changePct = portfolio?.change24hPct ?? 0;
 
   // Best performer NYATA: posisi dengan perubahan 24 jam terbesar (bukan angka karangan).
-  const bestPerformer = (portfolio?.positions ?? [])
-    .filter((p) => p.valueUsd !== null && p.change24h !== 0)
-    .sort((a, b) => b.change24h - a.change24h)[0];
+  // M??: jangan sort penuh tiap render + jangan samakan null dengan 0
+  const bestPerformer = (() => {
+    if (!portfolio?.positions) return undefined;
+    let best: (typeof portfolio.positions)[number] | undefined;
+    for (const p of portfolio.positions) {
+      if (p.valueUsd === null || p.change24h === null || p.change24h === 0) continue;
+      if (!best || (p.change24h as number) > ((best.change24h ?? 0) as number)) best = p;
+    }
+    return best;
+  })();
 
   const warnings = portfolio?.warnings ?? [];
 
@@ -169,7 +184,7 @@ export default function HomePage() {
                         key={a.chainKey}
                         title={`${a.chainKey} • ${a.pct.toFixed(1)}%`}
                         className="flex-1 rounded-t-lg bg-zinc-900 dark:bg-white transition-all"
-                        style={{ height: `${Math.max(6, a.pct)}px`, opacity: 0.3 + (a.pct / 100) * 0.7 }}
+                        style={{ height: `${Math.max(6, (a.pct / 100) * 60)}px`, opacity: 0.3 + (a.pct / 100) * 0.7 }}
                       />
                     ))}
                   </div>
@@ -184,7 +199,7 @@ export default function HomePage() {
               <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800 p-3">
                 <p className="uppercase tracking-widest text-zinc-500">Best performer</p>
                 <p className="font-semibold mt-1">
-                  {bestPerformer
+                  {bestPerformer && bestPerformer.change24h !== null
                     ? `${bestPerformer.token.symbol} • ${bestPerformer.change24h >= 0 ? "+" : ""}${bestPerformer.change24h.toFixed(2)}%`
                     : "—"}
                 </p>

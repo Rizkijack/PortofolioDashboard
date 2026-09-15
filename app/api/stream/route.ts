@@ -18,6 +18,10 @@ export const runtime = "nodejs";
  *   heartbeat — tiap 15s supaya proxy tidak memutus
  *   error     — kegagalan non-fatal per chain
  */
+const STREAM_START = new Map<string, number>();
+const STREAM_MAX_RUNTIME_MS = 60_000;
+const STREAM_MAX_CONCURRENT = 3;
+
 export async function GET(req: NextRequest) {
   const rl = rateLimit(req);
   if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
@@ -31,6 +35,19 @@ export async function GET(req: NextRequest) {
   const chains = parseChainKeys(sp.get("chains"));
   const intervalRaw = Number(sp.get("interval") ?? 5000);
   const interval = Number.isFinite(intervalRaw) ? Math.min(20_000, Math.max(3_000, intervalRaw)) : 5000;
+
+  // M26 fix: cap concurrent SSE per-IP & max runtime 60s
+  const ip = req.headers.get("x-real-ip") || req.headers.get("x-vercel-forwarded-for")?.split(",")[0] || req.headers.get("x-forwarded-for")?.split(",")[0] || "local";
+  const now = Date.now();
+  // cleanup old
+  for (const [k, v] of STREAM_START) if (now - v > STREAM_MAX_RUNTIME_MS + 5_000) STREAM_START.delete(k);
+  const concurrent = [...STREAM_START.keys()].filter((k) => k.startsWith(`${ip}:`)).length;
+  if (concurrent >= STREAM_MAX_CONCURRENT) {
+    return NextResponse.json({ error: "too many streams" }, { status: 429, headers: { "Retry-After": "10" } });
+  }
+  const streamKey = `${ip}:${address}:${now}`;
+  STREAM_START.set(streamKey, now);
+  const startedAt = now;
 
   ensureStream();
 
@@ -145,6 +162,7 @@ export async function GET(req: NextRequest) {
       const cleanup = () => {
         if (closed) return;
         closed = true;
+        STREAM_START.delete(streamKey);
         if (tickTimer) clearTimeout(tickTimer);
         clearInterval(hbTimer);
         try {
@@ -155,16 +173,24 @@ export async function GET(req: NextRequest) {
       };
 
       req.signal.addEventListener("abort", cleanup);
+      // auto-close setelah 60s untuk hindari SSE abadi
+      setTimeout(() => {
+        if (!closed && Date.now() - startedAt >= STREAM_MAX_RUNTIME_MS) {
+          send("close", { reason: "max_runtime" });
+          cleanup();
+        }
+      }, STREAM_MAX_RUNTIME_MS + 1_000);
     },
     cancel() {
       closed = true;
+      STREAM_START.delete(streamKey);
     },
   });
 
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
+      "Cache-Control": "no-store",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     },

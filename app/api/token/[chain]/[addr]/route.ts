@@ -157,19 +157,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ chain: stri
     }
   }
 
-  // 1. DexScreener Source
-  const pairs = await fetchPairs(meta.key, [addr]).catch(() => new Map());
+  // M31 fix: paralelkan 3 sumber independen (sebelumnya serial 4 fetch)
+  const [pairs, gtData, birdeyeOverview] = await Promise.all([
+    fetchPairs(meta.key, [addr]).catch(() => new Map() as Awaited<ReturnType<typeof fetchPairs>>),
+    fetchGeckoTerminalToken(meta.dexscreenerSlug, addr),
+    fetchBirdeyeTokenOverview(meta.dexscreenerSlug, addr),
+  ]);
   const dexOverview = overviewOf(pairs.get(addr.toLowerCase()));
   const pairItem = pairs.get(addr.toLowerCase());
-
-  // 2. GeckoTerminal Source
-  const gtData = await fetchGeckoTerminalToken(meta.dexscreenerSlug, addr);
   const gtAttr = gtData?.data?.attributes;
   const gtTopPoolId = gtData?.data?.relationships?.top_pools?.data?.[0]?.id;
   const gtPoolAddr = gtTopPoolId ? gtTopPoolId.split("_").pop() || null : null;
-
-  // 3. Birdeye Source (if key available)
-  const birdeyeOverview = await fetchBirdeyeTokenOverview(meta.dexscreenerSlug, addr);
 
   // Aggregate Metrics across providers
   circulatingMarketCap =
@@ -241,7 +239,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ chain: stri
     };
   }
 
-  // User Token Balance (if owner provided)
+  // User Token Balance (if owner provided) — 400 jika owner invalid tapi param ada
+  if (owner && !isAddress(owner)) {
+    return NextResponse.json({ error: "invalid owner address" }, { status: 400 });
+  }
   let token: TokenBalance | null = null;
   if (isAddress(owner)) {
     try {
@@ -358,7 +359,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ chain: stri
     warnings,
   };
 
-  return NextResponse.json(body, {
-    headers: { "Cache-Control": "public, s-maxage=5, stale-while-revalidate=15" },
-  });
+  // jika ada owner (per-address), private; else public
+  const cacheCtrl = owner ? "private, max-age=5, stale-while-revalidate=15" : "public, s-maxage=5, stale-while-revalidate=15";
+  return NextResponse.json(body, { headers: { "Cache-Control": cacheCtrl } });
 }

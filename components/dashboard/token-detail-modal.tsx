@@ -5,6 +5,7 @@ import { createChart, ColorType, CandlestickSeries, AreaSeries } from "lightweig
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
 import { CHAINS, chainMeta, getChainById } from "@/lib/chains";
 import { fmtNumber, fmtUsd } from "@/lib/utils";
+import { isSafeLogo } from "./assets-table";
 import type { PortfolioPosition } from "@/lib/compat";
 import type { TokenDetailResponse } from "@/lib/types";
 
@@ -65,21 +66,27 @@ export function TokenDetailModal({ position, ownerAddress, onClose }: TokenDetai
     };
   }, [position, tf, ownerAddress]);
 
-  // Copy address helper
+  // Copy address helper — M?: clipboard tanpa catch + timeout tanpa cleanup
   const copyAddress = useCallback(() => {
     if (!position?.token.address) return;
-    navigator.clipboard.writeText(position.token.address);
+    navigator.clipboard.writeText(position.token.address).catch(() => {});
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const t = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(t);
   }, [position]);
 
-  // Escape key close
+  // Escape key close + scroll lock + focus trap sederhana
   useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
   }, [onClose]);
 
   // Render Lightweight Charts (TradingView)
@@ -272,7 +279,7 @@ export function TokenDetailModal({ position, ownerAddress, onClose }: TokenDetai
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            {position.token.logo ? (
+            {position.token.logo && isSafeLogo(position.token.logo) ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={position.token.logo}
@@ -490,7 +497,7 @@ export function TokenDetailModal({ position, ownerAddress, onClose }: TokenDetai
             <a
               href={detail?.meta.explorerUrl ?? `${chainConfig?.explorer}/token/${position.token.address}`}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1 font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
             >
               Explorer ↗
@@ -499,7 +506,7 @@ export function TokenDetailModal({ position, ownerAddress, onClose }: TokenDetai
             <a
               href={detail?.meta.dexscreenerUrl ?? `https://dexscreener.com/${position.chainKey}/${position.token.address}`}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1 font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
             >
               DexScreener ↗
@@ -508,7 +515,7 @@ export function TokenDetailModal({ position, ownerAddress, onClose }: TokenDetai
             <a
               href={detail?.meta.geckoterminalUrl ?? `https://www.geckoterminal.com/${position.chainKey}/tokens/${position.token.address}`}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1 font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
             >
               GeckoTerminal ↗
@@ -517,7 +524,7 @@ export function TokenDetailModal({ position, ownerAddress, onClose }: TokenDetai
             <a
               href={detail?.meta.birdeyeUrl ?? `https://birdeye.so/token/${position.token.address}?chain=${position.chainKey}`}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1 font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
             >
               Birdeye ↗

@@ -96,15 +96,21 @@ export async function GET(req: NextRequest) {
       l.push(it);
       byChain.set(it.chain, l);
     }
+    // M5 fix: enrich simbol untuk SEMUA token, bukan cuma list[0].address (Tier-1 miss massal sebelumnya)
     await Promise.all(
       [...byChain.entries()].map(async ([chain, list]) => {
-        try {
-          const discovered = await discoverTokens(chain as ChainKey, list[0].address);
-          const byAddr = new Map(discovered.map((d) => [d.address, d.symbol]));
-          for (const it of list) it.symbol = byAddr.get(it.address.toLowerCase()) ?? "";
-        } catch {
-          /* simbol tidak wajib */
-        }
+        // untuk tiap address di list, coba discover dari cache/memberi simbol yang benar
+        await Promise.all(
+          list.map(async (it) => {
+            if (it.symbol) return;
+            try {
+              const discovered = await discoverTokens(chain as ChainKey, it.address);
+              const found = discovered.find((d) => d.address.toLowerCase() === it.address.toLowerCase());
+              if (found?.symbol) it.symbol = found.symbol;
+            } catch {/* simbol tidak wajib */}
+          })
+        );
+        // fallback: jika masih kosong dan isNative, sudah diisi di parsePriceIds
       })
     );
 
@@ -115,10 +121,10 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // ── slug CoinGecko (ticker UI)
+  // ── slug CoinGecko (ticker UI) — public boleh, tidak per-address
   const quotes = await fetchSlugQuotes(parts);
   return NextResponse.json(
     { quotes, fetchedAt: Date.now(), missing: Object.entries(quotes).filter(([, v]) => v.usd === null).map(([k]) => k) },
-    { headers: { "Cache-Control": "public, s-maxage=2, stale-while-revalidate=6" } }
+    { headers: { "Cache-Control": "public, s-maxage=4, stale-while-revalidate=10" } }
   );
 }

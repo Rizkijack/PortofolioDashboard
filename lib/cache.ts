@@ -54,6 +54,11 @@ export class TtlCache {
             this.set(key, v, opts);
             return v;
           })
+          .catch((e) => {
+            // M17 fix: revalidate gagal → jangan hapus cache, biarkan stale rescue
+            console.warn(`[cache] revalidate ${key} failed:`, e instanceof Error ? e.message.slice(0, 80) : String(e));
+            throw e;
+          })
           .finally(() => this.inflight.delete(key));
         this.inflight.set(key, p);
         p.catch(() => {});
@@ -61,17 +66,37 @@ export class TtlCache {
       return { value: hit.value, cached: true };
     }
 
+    // M17 fix: jika expired tapi ada stale, dan fetcher reject → rescue stale
+    const staleHit = hit;
     const existing = this.inflight.get(key);
-    if (existing) return { value: (await existing) as T, cached: false };
+    if (existing) {
+      try {
+        return { value: (await existing) as T, cached: false };
+      } catch (e) {
+        if (staleHit) return { value: staleHit.value, cached: true };
+        throw e;
+      }
+    }
 
     const p = fetcher()
       .then((v) => {
         this.set(key, v, opts);
         return v;
       })
+      .catch((e) => {
+        if (staleHit) {
+          console.warn(`[cache] fetch ${key} failed, rescue stale:`, e instanceof Error ? e.message.slice(0, 80) : String(e));
+          return staleHit.value;
+        }
+        throw e;
+      })
       .finally(() => this.inflight.delete(key));
     this.inflight.set(key, p);
-    return { value: await p, cached: false };
+    const value = await p;
+    // jika rescue stale, value adalah staleHit.value — tapi kita sudah catch di atas
+    // jadi hit? kembalikan sebagai cached true jika dari rescue
+    if (staleHit && value === staleHit.value) return { value, cached: true };
+    return { value, cached: false };
   }
 
   delete(key: string) {
@@ -96,7 +121,22 @@ export async function fetchWithTimeout(
   try {
     // Gabungkan signal caller (bila ada) dengan signal timeout internal —
     // jangan menimpa, supaya AbortController milik pemanggil tetap bisa abort.
-    const signal = rest.signal ? AbortSignal.any([ctrl.signal, rest.signal]) : ctrl.signal;
+    // Fallback Node <20.3 yang belum punya AbortSignal.any
+    let signal: AbortSignal;
+    if (rest.signal) {
+      if (typeof (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any === "function") {
+        signal = (AbortSignal as unknown as { any: (s: AbortSignal[]) => AbortSignal }).any([ctrl.signal, rest.signal]);
+      } else {
+        // polyfill manual: abort salah satu → abort gabungan
+        const anyCtrl = new AbortController();
+        const onAbort = () => anyCtrl.abort((rest.signal as AbortSignal).reason ?? ctrl.signal.reason);
+        ctrl.signal.addEventListener("abort", onAbort, { once: true });
+        rest.signal.addEventListener("abort", onAbort, { once: true });
+        signal = anyCtrl.signal;
+      }
+    } else {
+      signal = ctrl.signal;
+    }
     return await fetch(input, { ...rest, signal });
   } finally {
     clearTimeout(timer);

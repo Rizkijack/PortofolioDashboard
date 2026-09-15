@@ -35,14 +35,19 @@ function streamQuote(symbol: string): PriceQuote | null {
   };
 }
 
-/** Ambang penerimaan harga on-chain (heartbeat Chainlink = 24 jam). */
-const ONCHAIN_MAX_AGE_MS = 30 * 60 * 60 * 1000; // 30 jam
+/** Ambang penerimaan harga on-chain — sinkron dengan heartbeat Chainlink 24h × STALE_FACTOR 2 = 48 jam */
+const ONCHAIN_MAX_AGE_MS = 48 * 60 * 60 * 1000; // 48 jam
 
 function pickBetter(a: PriceQuote | null, b: PriceQuote | null): PriceQuote | null {
   if (!a) return b;
   if (!b) return a;
   if (a.usd === null) return b;
   if (b.usd === null) return a;
+  // M1 fix: jangan selalu return a — bandingkan staleness & freshness
+  if (a.stale && !b.stale) return b;
+  if (!a.stale && b.stale) return a;
+  // kedua fresh/basi sama → pilih yang lebih baru (ageMs kecil)
+  if (a.ageMs !== b.ageMs) return a.ageMs < b.ageMs ? a : b;
   return a;
 }
 
@@ -82,14 +87,16 @@ export async function resolveQuotes(
       const pushQ: PriceQuote | null =
         rsPush && rsPush.usd !== null && rsPush.usd > 0 ? pushToQuote(rsPush) : null;
 
-      // Tier 1 — on-chain (utamakan yang masih dalam jendela heartbeat)
+      // Tier 1 — on-chain (utamakan yang masih dalam jendela heartbeat, tapi pilih yang paling fresh)
+      // M1 fix: jangan break buta — bandingkan keduanya via pickBetter
+      let tier1Best: PriceQuote | null = null;
       for (const q of [chainlinkQ, pushQ]) {
         if (q && q.usd !== null && q.ageMs <= ONCHAIN_MAX_AGE_MS) {
-          best = pickBetter(best, q);
-          break;
+          tier1Best = pickBetter(tier1Best, q);
         }
       }
-      if (!best) best = pickBetter(chainlinkQ, pushQ);
+      if (tier1Best) best = tier1Best;
+      else best = pickBetter(chainlinkQ, pushQ);
 
       // Tier 2 — stream Binance bila on-chain absen/basi
       if (!best || best.usd === null || best.stale) {

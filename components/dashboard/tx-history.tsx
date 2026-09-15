@@ -152,7 +152,7 @@ export function TxHistory({ address, chains }: { address?: string; chains?: Chai
                     <a
                       href={explorerTx}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                       className="font-mono text-xs font-semibold hover:underline"
                       title={tx.hash}
                     >
@@ -207,7 +207,7 @@ export function TxHistory({ address, chains }: { address?: string; chains?: Chai
                 <a
                   href={explorerTx}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 rounded-full border border-zinc-200 dark:border-zinc-700 px-2.5 py-1 text-xs hover:bg-zinc-900 hover:text-white dark:hover:bg-white dark:hover:text-zinc-900 transition"
                 >
                   View ↗

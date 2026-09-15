@@ -37,8 +37,10 @@ export const etherscanProvider: TokenDiscoveryProvider = {
     const apiKey = process.env[config.envKey] || process.env.ETHERSCAN_API_KEY;
     if (!apiKey) return [];
 
+    // M7/M9 fix: validasi address & jangan hardcode verified:true untuk tokentx (riwayat, bukan saldo)
+    if (!/^0x[a-fA-F0-9]{40}$/.test(userAddress)) return [];
     try {
-      const url = `${config.url}?module=account&action=tokentx&address=${userAddress}&page=1&offset=100&sort=desc&apikey=${apiKey}`;
+      const url = `${config.url}?module=account&action=tokentx&address=${encodeURIComponent(userAddress)}&page=1&offset=100&sort=desc&apikey=${encodeURIComponent(apiKey)}`;
       const res = await fetchWithTimeout(url, {
         timeoutMs: 8_000,
         headers: { accept: "application/json" },
@@ -68,8 +70,9 @@ export const etherscanProvider: TokenDiscoveryProvider = {
         holdersCount: null,
         logoUrl: null,
         type: "ERC-20",
+        // M7: tokentx bukan saldo — jangan verified true; unknown balance
         suspicious: false,
-        verified: true,
+        verified: false,
         protocol: null,
         discoverySource: "etherscan",
       }));

@@ -29,11 +29,12 @@ export interface PortfolioPosition {
   rawBalance: string;
   /** saldo terdesimal lossless (string) */
   balance: string;
-  /** versi numerik untuk render tabel */
+  /** versi numerik untuk render tabel — WARNING: presisi hilang >2^53, pakai rawBalance/balance untuk sort */
   formatted: number;
   priceUsd: number | null;
   valueUsd: number | null;
-  change24h: number;
+  /** M23 fix: null = unknown, bukan 0 — ubah ke number | null */
+  change24h: number | null;
   priceSource: PriceSource;
   priceAgeMs: number;
   priceStale: boolean;
@@ -62,6 +63,8 @@ export function toPositions(res: PortfolioResponse): PortfolioPosition[] {
   const out: PortfolioPosition[] = [];
   for (const cp of res.chains) {
     for (const t of cp.tokens) {
+      // M23 fix: formatted via Number(balance) hilang presisi whale — simpan tapi jangan dipakai sort
+      // change24h null = unknown (jangan samakan dengan 0)
       out.push({
         chainId: cp.meta.chainId,
         chainKey: t.chain,
@@ -75,10 +78,12 @@ export function toPositions(res: PortfolioResponse): PortfolioPosition[] {
         },
         rawBalance: t.rawBalance,
         balance: t.balance,
-        formatted: Number(t.balance),
+        formatted: (() => {
+          try { return Number(t.balance); } catch { return 0; }
+        })(),
         priceUsd: t.price.usd,
         valueUsd: t.valueUsd,
-        change24h: t.price.change24h ?? 0,
+        change24h: t.price.change24h ?? null,
         priceSource: t.price.source,
         priceAgeMs: t.price.ageMs,
         priceStale: t.price.stale,
@@ -104,12 +109,14 @@ export function summarize(res: PortfolioResponse | null): PortfolioSummary | nul
     if (p.valueUsd !== null) byChain[p.chainId].usd += p.valueUsd;
   }
 
-  // perubahan 24 jam hanya dari posisi yang benar-benar punya change24h
+  // perubahan 24 jam hanya dari posisi yang benar-benar punya change24h (null/0 di-skip)
   let changeUsd = 0;
   let baseUsd = 0;
   for (const p of positions) {
-    if (p.valueUsd === null || p.change24h === 0) continue;
+    if (p.valueUsd === null || p.change24h === null || p.change24h === 0) continue;
+    if (!Number.isFinite(p.change24h)) continue;
     const prev = p.valueUsd / (1 + p.change24h / 100);
+    if (!Number.isFinite(prev)) continue;
     changeUsd += p.valueUsd - prev;
     baseUsd += prev;
   }

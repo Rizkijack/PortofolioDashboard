@@ -76,7 +76,9 @@ export function shortenForTable(addr: string): string {
 }
 
 export function isNativeAddress(addr: string): boolean {
-  return addr.toLowerCase() === "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+  // M21 fix: unify — 0xeeee... (portfolio) dan 0x0000... (prices) sama-sama native
+  const l = addr.toLowerCase();
+  return l === "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" || l === "0x0000000000000000000000000000000000000000";
 }
 
 export function explorerAddressUrl(chain: ChainKey, addr: string): string {

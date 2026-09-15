@@ -190,6 +190,15 @@ export function parseChainKeys(csv: string | null | undefined): ChainKey[] {
 
 // ─────────────────────────── konstanta alamat ───────────────────────────
 
+// M19 fix: verifikasi per-chain — 0xcA11... terdeploy di semua 5 chain (verified 2026-09-14)
+// Tetap sediakan map per-chain agar mudah ganti bila satu chain belum deploy
+export const MULTICALL3_BY_CHAIN: Record<ChainKey, `0x${string}`> = {
+  robinhood: "0xcA11bde05977b3631167028862bE2a173976CA11",
+  base: "0xcA11bde05977b3631167028862bE2a173976CA11",
+  bsc: "0xcA11bde05977b3631167028862bE2a173976CA11",
+  hyperevm: "0xcA11bde05977b3631167028862bE2a173976CA11",
+  ink: "0xcA11bde05977b3631167028862bE2a173976CA11",
+};
 export const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 
 export const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;

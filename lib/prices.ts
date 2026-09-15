@@ -14,6 +14,7 @@ import type { ChainKey, PriceQuote } from "./types";
 import { resolveQuotes, fillFromDexScreener, streamStatus, waitForTicks } from "./oracle";
 import { fetchRedstoneApi } from "./oracle/redstone";
 import { ensureStream, getStreamPrice } from "./oracle/binance";
+import { globalCache } from "./cache";
 
 // ── kompatibilitas hook UI lama ──
 export type PriceMap = Record<
@@ -89,42 +90,40 @@ export function parsePriceIds(ids: string): PriceRequestItem[] {
  * Jalur: Binance stream (sub-detik) → RedStone API → DexScreener Base USDC pair.
  */
 export async function fetchSlugQuotes(slugs: string[]): Promise<PriceMap> {
-  const out: PriceMap = {};
-  if (!slugs.length) return out;
-
+  if (!slugs.length) return {};
   const wanted = new Map<string, string>(); // slug → symbol
   for (const s of slugs) {
     const sym = slugToSymbol(s);
     if (sym) wanted.set(s.toLowerCase(), sym);
   }
-  if (!wanted.size) return out;
+  if (!wanted.size) return {};
 
-  ensureStream();
-  await waitForTicks(2500);
-
-  const symbols = [...new Set(wanted.values())];
-  const redstone = await fetchRedstoneApi(symbols).catch(() => new Map());
-
-  for (const [slug, sym] of wanted) {
-    const stream = getStreamPrice(sym);
-    if (stream) {
-      out[slug] = {
-        usd: stream.usd,
-        change24h: stream.change24h,
-        updatedAt: stream.updatedAt,
-        source: "binance-ws",
-      };
-      continue;
-    }
-    const rs = redstone.get(sym);
-    if (rs) {
-      out[slug] = { usd: rs.usd, change24h: null, updatedAt: rs.updatedAt, source: "redstone-api" };
-    } else {
-      out[slug] = { usd: null, change24h: null, updatedAt: 0, source: "none" };
-    }
-  }
-
-  return out;
+  // M6 fix: cache 4s & skip wait jika stream sudah punya ticks
+  const cacheKey = `slug-quotes:${[...wanted.keys()].sort().join(",")}`;
+  const { value } = await globalCache.swr(
+    cacheKey,
+    async () => {
+      ensureStream();
+      const st = streamStatus();
+      const connected = st?.connected ?? false;
+      if (!connected) await waitForTicks(2500);
+      const symbols = [...new Set(wanted.values())];
+      const redstone = await fetchRedstoneApi(symbols).catch(() => new Map<string, { usd: number; updatedAt: number }>());
+      const snapshot: PriceMap = {};
+      for (const [slug, sym] of wanted) {
+        const stream = getStreamPrice(sym);
+        if (stream) snapshot[slug] = { usd: stream.usd, change24h: stream.change24h, updatedAt: stream.updatedAt, source: "binance-ws" };
+        else {
+          const rs = redstone.get(sym);
+          if (rs) snapshot[slug] = { usd: rs.usd, change24h: null, updatedAt: rs.updatedAt, source: "redstone-api" };
+          else snapshot[slug] = { usd: null, change24h: null, updatedAt: 0, source: "none" };
+        }
+      }
+      return snapshot;
+    },
+    { freshMs: 4_000, staleMs: 15_000 }
+  );
+  return value;
 }
 
 /** Harga untuk id kanonik "chain:address" (resolusi berlapis penuh). */

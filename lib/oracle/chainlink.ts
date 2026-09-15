@@ -3,7 +3,7 @@
  * Satu RPC call untuk N feed (latestRoundData + decimals).
  */
 
-import { parseAbi } from "viem";
+import { formatUnits, parseAbi } from "viem";
 import { withFailover } from "../rpc";
 import { MULTICALL3 } from "../chains";
 import { findFeed, type ChainlinkFeed } from "./chainlink-feeds";
@@ -58,12 +58,19 @@ export async function readChainlink(
         const answer = round[1];
         const updatedAt = Number(round[3]);
         const decimals = Number(dc.result as number);
-        const usd = Number(answer) / 10 ** decimals;
-        const sane = Number.isFinite(usd) && usd > 0 && updatedAt > 1_600_000_000;
+        // C1 fix: jangan Number(bigint) langsung — > MAX_SAFE_INTEGER overflow
+        let usd: number | null = null;
+        try {
+          const parsed = parseFloat(formatUnits(answer, decimals));
+          usd = Number.isFinite(parsed) ? parsed : null;
+        } catch {
+          usd = null;
+        }
+        const sane = usd !== null && usd > 0 && updatedAt > 1_600_000_000;
         out.set(symbol, {
           pair: feed.pair,
           address: feed.address,
-          usd: sane ? usd : null,
+          usd: sane ? usd! : null,
           decimals,
           updatedAt: sane ? updatedAt * 1000 : 0,
           error: sane ? undefined : "implausible oracle value",

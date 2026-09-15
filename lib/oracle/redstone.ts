@@ -3,7 +3,7 @@
  * Catatan: API RedStone WAJIB provider=redstone-primary-prod (tanpa itu HTTP 500).
  */
 
-import { parseAbi } from "viem";
+import { formatUnits, parseAbi } from "viem";
 import { fetchWithTimeout, globalCache } from "../cache";
 import { withFailover } from "../rpc";
 import { MULTICALL3 } from "../chains";
@@ -40,8 +40,11 @@ export async function fetchRedstoneApi(
     );
     const now = Date.now();
     for (const [sym, p] of Object.entries(value)) {
+      // M3: pakai timestamp provider jika ada; else now tapi tandai staleness di konsumen
+      const rawTs = (p as { timestamp?: number; timestampMs?: number })?.timestamp;
+      const tsMs = typeof rawTs === "number" ? (rawTs < 1e12 ? rawTs * 1000 : rawTs) : now;
       if (typeof p?.value === "number" && Number.isFinite(p.value) && p.value > 0) {
-        out.set(sym.toUpperCase(), { usd: p.value, updatedAt: now });
+        out.set(sym.toUpperCase(), { usd: p.value, updatedAt: tsMs });
       }
     }
   } catch {
@@ -114,12 +117,18 @@ export async function readRedstonePush(
         const answer = round[1];
         const updatedAt = Number(round[3]);
         const decimals = Number(dc.result as number);
-        const usd = Number(answer) / 10 ** decimals;
-        const sane = Number.isFinite(usd) && usd > 0 && updatedAt > 1_600_000_000;
+        let usd: number | null = null;
+        try {
+          const parsed = parseFloat(formatUnits(answer, decimals));
+          usd = Number.isFinite(parsed) ? parsed : null;
+        } catch {
+          usd = null;
+        }
+        const sane = usd !== null && usd > 0 && updatedAt > 1_600_000_000;
         out.set(symbol, {
           pair: feed.pair,
           address: feed.address,
-          usd: sane ? usd : null,
+          usd: sane ? usd! : null,
           decimals,
           updatedAt: sane ? updatedAt * 1000 : 0,
           error: sane ? undefined : "implausible push value",

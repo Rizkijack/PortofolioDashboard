@@ -6,9 +6,16 @@ export const projectId = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID ?? "";
 
 export const hasReownProjectId = /^[a-f0-9]{32}$/i.test(projectId);
 
+if (!hasReownProjectId && typeof window !== "undefined") {
+  // M20 fix: jangan diam-diam pakai dummy "0"*32 — warn di dev
+  // Di production tanpa env, tetap jalan fallback injected wallet, bukan Reown
+  if (process.env.NODE_ENV !== "production") console.warn("[wagmi] NEXT_PUBLIC_REOWN_PROJECT_ID missing or invalid — AppKit disabled, fallback to injected wallet");
+}
+
 export const wagmiAdapter = new WagmiAdapter({
   networks: supportedChains as unknown as ConstructorParameters<typeof WagmiAdapter>[0]["networks"],
-  projectId: projectId || "0".repeat(32),
+  // M20: dummy hanya untuk wagmi internal, AppKit tidak akan init tanpa hasReownProjectId (lihat providers.tsx)
+  projectId: hasReownProjectId ? projectId : "0".repeat(32),
   ssr: true,
   storage: createStorage({ storage: cookieStorage }),
 });

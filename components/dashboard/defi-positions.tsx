@@ -189,7 +189,7 @@ export function DefiPositions({
                     <a
                       href={explorerPoolUrl(p.chain, p.poolAddress)}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                       className="text-xs text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition"
                       title="View pool on explorer"
                     >
@@ -242,7 +242,7 @@ export function DefiPositions({
               <a
                 href={explorerPoolUrl(p.chain, p.poolAddress)}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="mt-2 inline-flex text-xs text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition"
               >
                 View on explorer ↗

@@ -64,9 +64,11 @@ async function discoverViaBlockscout(
   base: string,
   address: string
 ): Promise<DiscoveredToken[]> {
-  const res = await fetchWithTimeout(`${base}/api/v2/addresses/${address}/token-balances`, {
+  // M9 fix: validasi address sebelum interpolasi URL
+  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) throw new Error("invalid address");
+  const res = await fetchWithTimeout(`${base}/api/v2/addresses/${encodeURIComponent(address)}/token-balances`, {
     timeoutMs: 15_000,
-    headers: browserHeaders(base, `/address/${address}`),
+    headers: browserHeaders(base, `/address/${encodeURIComponent(address)}`),
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`blockscout(${chain}) ${res.status}`);
@@ -119,10 +121,12 @@ interface RoutescanTokenTx {
 const ROUTESCAN_BASE = "https://api.routescan.io/v2/network/mainnet/evm";
 
 async function discoverViaRoutescan(chain: ChainKey, address: string): Promise<DiscoveredToken[]> {
+  // M9/M7: validasi & jangan hardcode verified true untuk tokentx
+  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) throw new Error("invalid address");
   const chainId = chain === "bsc" ? 56 : 0;
   const url =
     `${ROUTESCAN_BASE}/${chainId}/etherscan/api` +
-    `?module=account&action=tokentx&address=${address}&page=1&offset=200&sort=desc`;
+    `?module=account&action=tokentx&address=${encodeURIComponent(address)}&page=1&offset=200&sort=desc`;
 
   const res = await fetchWithTimeout(url, {
     timeoutMs: 15_000,
@@ -153,7 +157,7 @@ async function discoverViaRoutescan(chain: ChainKey, address: string): Promise<D
     logoUrl: null,
     type: "ERC-20",
     suspicious: false,
-    verified: true,
+    verified: false,
     discoverySource: "routescan",
   }));
 }

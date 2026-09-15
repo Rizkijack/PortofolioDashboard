@@ -26,12 +26,10 @@ export async function GET(req: NextRequest) {
   try {
     const data = await fetchPortfolio(address, chains, { includeZero });
     return NextResponse.json(data, {
-      headers: { "Cache-Control": "public, s-maxage=3, stale-while-revalidate=10" },
+      headers: { "Cache-Control": "private, max-age=3, stale-while-revalidate=10" },
     });
   } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "portfolio fetch failed" },
-      { status: 500 }
-    );
+    console.error("[portfolio] ", e instanceof Error ? e.message : String(e));
+    return NextResponse.json({ error: "portfolio fetch failed" }, { status: 500 });
   }
 }

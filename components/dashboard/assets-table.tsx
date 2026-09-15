@@ -157,7 +157,7 @@ export function AssetsTable({
                         <a
                           href={explorerTokenUrl}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noopener noreferrer"
                           className="text-xs text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition p-1"
                           title="View on Explorer"
                         >

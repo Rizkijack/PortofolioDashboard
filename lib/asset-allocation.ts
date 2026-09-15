@@ -185,9 +185,12 @@ export function classifyPosition(p: PortfolioPosition): AssetCategory {
  * tanpa harga tetap dihitung di `count` kategorinya dan dilaporkan terpisah.
  */
 export function buildAllocationBreakdown(positions: PortfolioPosition[]): AllocationBreakdown {
+  // C5 fix: guard NaN/undefined/Infinity di valueUsd — satu nilai korup jangan jadi total NaN
   let totalUsd = 0;
   for (const p of positions) {
-    if (p.valueUsd !== null) totalUsd += p.valueUsd;
+    const v = p.valueUsd;
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    totalUsd += v;
   }
 
   // Akumulator per kategori.
@@ -202,7 +205,7 @@ export function buildAllocationBreakdown(positions: PortfolioPosition[]): Alloca
     const a = acc.get(cat);
     if (!a) continue;
     a.count += 1;
-    if (p.valueUsd === null) {
+    if (p.valueUsd === null || typeof p.valueUsd !== "number" || !Number.isFinite(p.valueUsd)) {
       unclassifiedCount += 1;
       continue; // tidak memengaruhi total, pct, maupun skor risiko
     }

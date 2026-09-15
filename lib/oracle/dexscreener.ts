@@ -74,16 +74,21 @@ export async function fetchPairs(
 
 export function pairToQuote(pair: DexPair): PriceQuote {
   const fetchedAt = Date.now();
-  const usd = pair.priceUsd ? Number(pair.priceUsd) : NaN;
-  const ok = Number.isFinite(usd) && usd > 0;
+  const rawUsd = pair.priceUsd ? Number(pair.priceUsd) : NaN;
+  const ok = Number.isFinite(rawUsd) && rawUsd > 0;
+  // M4 fix: Dex harga volatil — jangan ageMs 0 abadi; pakai fetchedAt tapi stale jika !ok
+  // Dan guard numerik tambahan
+  const usd = ok ? rawUsd : null;
+  const ch = pair.priceChange?.h24;
+  const change24h = typeof ch === "number" && Number.isFinite(ch) ? ch : null;
   return {
-    usd: ok ? usd : null,
+    usd,
     source: "dexscreener",
     updatedAt: fetchedAt,
     fetchedAt,
     ageMs: 0,
     stale: !ok,
-    change24h: pair.priceChange?.h24 ?? null,
+    change24h,
   };
 }
 

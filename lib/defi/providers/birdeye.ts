@@ -233,9 +233,14 @@ function collectItems(json: unknown): BirdeyeRawItem[] {
   tryPush(obj.list);
   tryPush(obj.result);
 
-  // filter yang terlihat seperti token item (punya address/symbol)
+  // M12 fix: kurung eksplisit + null-guard (sebelumnya && vs || tanpa kurung + (null).address throw)
   const out = candidates.filter(
-    (c) => c && typeof c === "object" && typeof (c as Record<string, unknown>).symbol === "string" || typeof (c as Record<string, unknown>).address === "string" || typeof (c as Record<string, unknown>).mint === "string"
+    (c) =>
+      !!c &&
+      typeof c === "object" &&
+      (typeof (c as Record<string, unknown>).symbol === "string" ||
+        typeof (c as Record<string, unknown>).address === "string" ||
+        typeof (c as Record<string, unknown>).mint === "string")
   ) as BirdeyeRawItem[];
 
   // Jika tidak ada yang ter-filter tapi candidates ada, kembalikan apa adanya bila tampak seperti item

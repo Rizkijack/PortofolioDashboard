@@ -196,9 +196,16 @@ export async function fetchChainPortfolio(
 
   for (const t of discovered) {
     const fromChain = balances.get(t.address);
-    // Fallback ke angka explorer/SDK HANYA bila memang melaporkan saldo,
-    // dan ditandai `balanceSource: "explorer"` supaya UI bisa membedakan.
-    const explorerRaw = t.rawBalance && t.rawBalance !== "0" ? BigInt(t.rawBalance) : null;
+    // C3 fix: guard BigInt(rawBalance) — satu string korup jangan bunuh seluruh chain
+    let explorerRaw: bigint | null = null;
+    if (t.rawBalance && t.rawBalance !== "0" && /^[0-9]+$/.test(t.rawBalance.trim())) {
+      try {
+        explorerRaw = BigInt(t.rawBalance.trim());
+      } catch {
+        explorerRaw = null;
+        warnings.push(`skip ${t.symbol} ${t.address.slice(0, 10)}: invalid rawBalance`);
+      }
+    }
     const value = fromChain ?? explorerRaw;
     if (value === null) continue;
     if (value > 0n || opts.includeZero) {
@@ -210,7 +217,9 @@ export async function fetchChainPortfolio(
         raw: value,
         isNative: false,
         logoUrl: t.logoUrl,
-        suspicious: t.suspicious || fromChain === undefined,
+        // C3/M??: jangan otomatis suspicious hanya karena fromChain undefined (explorer fallback sah)
+        // suspicious hanya dari provider; fallback ditandai via balanceSource
+        suspicious: t.suspicious ?? false,
         verified: t.verified,
         protocol: t.protocol,
         discoverySource: t.discoverySource,
